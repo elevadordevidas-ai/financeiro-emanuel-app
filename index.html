@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0b0e13"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <title>Financeiro do Emanuel</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{--bg:#0b0e13;--panel:#10141b;--card:#12171f;--card2:#181e29;--line:#232b39;--tx:#eef1f6;--mut:#8791a5;--ac:#2dd4a7;--ac2:#25b88f;--acd:#0e2f28;--red:#f0606b;--grn:#2dd4a7;--org:#f59e0b;--navy:#dfe6f3;--navy2:#aab4c8;--pur:#8b7cf6;--field:#0e1218;--hover:#ffffff0b;--chip:#1b222d;--r:14px;--sh:0 1px 2px #0006}
 [data-theme=light]{--bg:#f4f6fa;--panel:#ffffff;--card:#ffffff;--card2:#f6f8fc;--line:#e4e8f0;--tx:#0f1b36;--mut:#6b7794;--ac:#0fb48a;--ac2:#0c9a75;--acd:#e1f6ef;--red:#e5484d;--grn:#0e9f7e;--org:#d97706;--navy:#0f1b36;--navy2:#44527a;--pur:#6d5ce8;--field:#ffffff;--hover:#0f1b360a;--chip:#eef2fa;--sh:0 1px 2px #0f1b360d}
@@ -540,7 +541,11 @@ function vImport(){
   $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Importar extrato ou fatura</h3>
   <p class="hint">Baixe o arquivo <b>OFX</b> (melhor) ou <b>CSV</b> no app ou site do banco. Nada é gravado antes da sua revisão, e dá para desfazer.</p>
   ${ops?`<label>Os lançamentos são de:</label><select id="idest">${ops}</select><label>Arquivo</label><input type="file" id="ifile" accept=".ofx,.csv,.txt"><button class="pri" style="margin-top:14px" onclick="leImport()">Ler arquivo</button>`:'<div class="empty">Cadastre antes uma <a class="hint" style="cursor:pointer;text-decoration:underline" onclick="ir(\'contas\')">conta</a> ou um <a class="hint" style="cursor:pointer;text-decoration:underline" onclick="ir(\'cartoes\')">cartão</a>.</div>'}</div>
-  <div class="card"><h3>Importações recentes</h3>${S.importacoes.map(i=>`<div class="item"><div class="nm"><b>${esc(i.arquivo)}</b><small>${esc(i.destino)} · ${i.qtd} lançamentos · ${new Date(i.criado_em).toLocaleDateString('pt-BR')}</small></div><button class="sm dan" onclick="desfazImport('${i.id}')">Desfazer</button></div>`).join('')||'<div class="empty">Nenhuma importação ainda</div>'}</div></div><div id="irev"></div>`;
+  <div class="card"><h3>Importações recentes</h3>${S.importacoes.map(i=>`<div class="item"><div class="nm"><b>${esc(i.arquivo)}</b><small>${esc(i.destino)} · ${i.qtd} lançamentos · ${new Date(i.criado_em).toLocaleDateString('pt-BR')}</small></div>${i.arquivo_path?`<button class="sm" onclick="verComp('${esc(i.arquivo_path)}')">PDF</button> `:''}<button class="sm dan" onclick="desfazImport('${i.id}')">Desfazer</button></div>`).join('')||'<div class="empty">Nenhuma importação ainda</div>'}</div></div>
+  <div class="card" style="margin-top:14px"><h3>Importar fatura de cartão em PDF</h3>
+  <p class="hint">Serve para qualquer cartão (Renner, C&A, Atacadão e outros). A IA lê as linhas da fatura, e você confere antes de guardar. Se o PDF tiver senha, o navegador pede e a senha não sai do seu computador.</p>
+  <div class="two"><div><label>Cartão</label><select id="pdest">${S.cartoes.map(c=>'<option value="'+c.id+'">'+esc(c.nome)+'</option>').join('')}<option value="novo">+ Novo cartão (criar pela fatura)</option></select></div><div><label>Arquivo PDF</label><input type="file" id="pfile" accept=".pdf,application/pdf"></div></div>
+  <button class="pri" style="margin-top:14px" onclick="lerFaturaPdf()">Ler fatura</button></div><div id="irev"></div>`;
   if(imp.rows.length)mostraRevisao();
 }
 async function lerTexto(file){const buf=await file.arrayBuffer();let t=new TextDecoder('utf-8').decode(buf);if(t.includes('�'))t=new TextDecoder('windows-1252').decode(buf);return t}
@@ -603,6 +608,84 @@ async function confirmaImport(){
 }
 async function desfazImport(id){if(!confirm('Desfazer esta importação? Os lançamentos que vieram dela serão apagados.'))return;
   if(await db(sb?.from('importacoes').delete().eq('id',id))){toast('Importação desfeita');recarrega()}}
+
+// ---------- fatura em PDF ----------
+let pdfImp=null;
+async function textoPdf(file){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const buf=await file.arrayBuffer();let pdf=null,senha;
+  for(let t=0;t<3;t++){
+    try{pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf.slice(0)),password:senha}).promise;break}
+    catch(e){if(e&&e.name==='PasswordException'){senha=prompt(t?'Senha incorreta. Digite de novo:':'Este PDF tem senha. Digite a senha (ela fica só no seu computador):');if(senha===null)throw new Error('cancelado')}else throw e}}
+  if(!pdf)throw new Error('não consegui abrir o PDF');
+  const out=[];
+  for(let i=1;i<=pdf.numPages;i++){
+    const pg=await pdf.getPage(i),tc=await pg.getTextContent();
+    const it=tc.items.map(x=>({x:x.transform[4],y:Math.round(x.transform[5]),s:x.str})).filter(x=>x.s&&x.s.trim());
+    it.sort((a,b)=>b.y-a.y||a.x-b.x);
+    const linhas=[];let atual=null;
+    it.forEach(x=>{if(!atual||Math.abs(x.y-atual.y)>3){atual={y:x.y,p:[]};linhas.push(atual)}atual.p.push(x)});
+    out.push(linhas.map(l=>l.p.sort((a,b)=>a.x-b.x).map(x=>x.s).join(' ')).join('\n'));
+  }
+  return out.join('\n');
+}
+async function lerFaturaPdf(){
+  const f=$('pfile').files[0];if(!f){toast('Escolha o PDF da fatura');return}
+  if(DEMO){toast('Modo demonstração: sem leitura de fatura');return}
+  toast('Lendo a fatura… pode levar até 1 minuto');
+  try{
+    const texto=await textoPdf(f);
+    const {data,error}=await sb.functions.invoke('ler-fatura',{body:{texto}});
+    let msg=data&&data.erro;if(error&&!msg){try{msg=(await error.context.json()).erro}catch(_e){msg=error.message}}
+    if(msg){toast('IA: '+msg);return}
+    pdfImp={fatura:data.fatura,arquivo:f.name,file:f,destino:$('pdest').value};
+    montaPdfRevisao();
+  }catch(e){toast(e.message==='cancelado'?'Cancelado':'Falha ao ler: '+e.message)}
+}
+function montaPdfRevisao(){
+  const F=pdfImp.fatura,ls=(F.lancamentos||[]).map(x=>({...x,valor:Math.abs(+x.valor||0)}));
+  const usados=new Set();
+  ls.forEach((x,i)=>{x.skip=false;x.aviso='';
+    if(x.tipo==='pagamento'){x.skip=true;x.aviso='pagamento da fatura anterior'}
+    else if(x.tipo==='credito'){const j=ls.findIndex((y,k)=>k!==i&&!usados.has(k)&&(y.tipo==='compra'||y.tipo==='encargo')&&Math.abs(y.valor-x.valor)<.005&&(y.final||'')===(x.final||''));
+      if(j>=0){usados.add(j);ls[j].skip=true;ls[j].aviso='estornado';x.skip=true;x.aviso='estorno'}else{x.skip=true;x.aviso='crédito (já está no total)'}}});
+  ls.forEach(x=>{x.ok=!x.skip});
+  const c=S.cartoes.find(c=>c.id===pdfImp.destino);pdfImp.linhas=ls;pdfImp.sync=!!(c&&c.pluggy_id);
+  pdfImp.ok=!pdfImp.sync;
+  mostraPdfRevisao();
+}
+function somaPdf(){return pdfImp.linhas.filter(x=>x.ok).reduce((a,x)=>a+x.valor,0)}
+function mostraPdfRevisao(){
+  const F=pdfImp.fatura,ls=pdfImp.linhas,soma=somaPdf(),dif=(+F.total||0)-soma;
+  $('irev').innerHTML=`<div class="card" style="margin-top:14px"><h3>Fatura ${esc(F.banco||'')} ${esc(F.cartao_nome||'')} <span class="tag">total ${BRL(F.total)} · vence ${fmtData(F.vencimento)}</span></h3>
+  <div class="hint" style="margin-bottom:8px">${ls.length} linhas lidas. Confira se está tudo certo antes de guardar. O valor oficial da fatura (${BRL(F.total)}) também é guardado.</div>
+  ${pdfImp.sync?`<label style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><input type="checkbox" style="width:auto" ${pdfImp.ok?'checked':''} onchange="pdfImp.ok=this.checked"> Este cartão já é sincronizado pelo banco. Marque só se quiser importar também as linhas do PDF.</label>`:''}
+  <div style="overflow:auto;max-height:55vh"><table><thead><tr><th></th><th>Data</th><th>Descrição</th><th>Final</th><th class="n">Valor</th></tr></thead><tbody>${ls.map((x,i)=>`<tr style="${x.ok?'':'opacity:.55'}"><td><input type="checkbox" style="width:auto" ${x.ok?'checked':''} ${x.skip&&x.tipo==='pagamento'?'disabled':''} onchange="pdfImp.linhas[${i}].ok=this.checked;pdfTot()"></td><td>${fmtData(x.data)}</td><td>${esc(x.descricao)}${x.parcela?' <span class="hint">'+esc(x.parcela)+'</span>':''}${x.aviso?'<div class="hint">'+x.aviso+'</div>':''}</td><td>${esc(x.final||'')}</td><td class="n ${x.tipo==='compra'||x.tipo==='encargo'?'':'pos'}"><b>${BRL(x.valor)}</b></td></tr>`).join('')}</tbody></table></div>
+  <div class="row" style="margin-top:14px;justify-content:space-between"><span id="pdftot" class="hint"></span><div class="row"><button onclick="pdfImp=null;vImport()">Cancelar</button><button class="pri" onclick="confirmaPdf()">Guardar fatura</button></div></div></div>`;
+  pdfTot();
+}
+function pdfTot(){const F=pdfImp.fatura,s=somaPdf(),d=(+F.total||0)-s;$('pdftot').textContent=pdfImp.linhas.filter(x=>x.ok).length+' linhas · soma '+BRL(s)+' · '+(Math.abs(d)<.01?'bate com o total da fatura':'diferença para o total: '+BRL(d))}
+async function confirmaPdf(){
+  if(DEMO){toast('Modo demonstração: nada é gravado');return}
+  const F=pdfImp.fatura;let cartaoId=pdfImp.destino,nomeCartao='';
+  try{
+    if(cartaoId==='novo'){
+      const nome=(((F.banco||'')+' '+(F.cartao_nome||'')).trim())||'Cartão novo';
+      const r=await sb.from('cartoes').insert({nome,fechamento:+(F.fechamento||'').slice(8,10)||25,vencimento:+(F.vencimento||'').slice(8,10)||5,limite:0}).select().single();
+      if(r.error)throw new Error(r.error.message);cartaoId=r.data.id;nomeCartao=nome;
+    }else nomeCartao=(S.cartoes.find(c=>c.id===cartaoId)||{}).nome||'';
+    const dataFat=F.fechamento||F.vencimento,mes=dataFat.slice(0,7);
+    const sel=pdfImp.ok?pdfImp.linhas.filter(x=>x.ok):[];
+    const path=await guardaArq({blob:pdfImp.file,mime:'application/pdf',name:pdfImp.arquivo},dataFat);
+    const im=await sb.from('importacoes').insert({arquivo:pdfImp.arquivo,destino:nomeCartao,qtd:sel.length,arquivo_path:path}).select().single();
+    if(im.error)throw new Error(im.error.message);
+    const fo=await sb.from('faturas_oficiais').upsert({cartao_id:cartaoId,mes,valor:+F.total},{onConflict:'cartao_id,mes'});
+    if(fo.error)throw new Error(fo.error.message);
+    const rows=sel.map((x,i)=>{const pm=(x.parcela||'').match(/^(\d+)\/(\d+)$/);return{tipo:'cartao',descricao:x.descricao||'Sem descrição',valor:Math.round(x.valor*100)/100,data:x.data,categoria:adivinha(x.descricao)||'Outros',cartao_id:cartaoId,importacao_id:im.data.id,fitid:'pdf:'+cartaoId+':'+mes+':'+i,cartao_final:x.final||null,data_fatura:dataFat,parcela_num:pm?+pm[1]:null,parcela_total:pm?+pm[2]:null}});
+    for(let i=0;i<rows.length;i+=300){const r=await sb.from('lancamentos').insert(rows.slice(i,i+300));if(r.error)throw new Error(r.error.message)}
+    toast('Fatura guardada: '+rows.length+' lançamentos e valor oficial '+BRL(F.total));pdfImp=null;await recarrega();
+  }catch(e){toast('Erro: '+e.message)}
+}
 
 // ---------- entrada ----------
 function mostraApp(){$('login').classList.add('hide');$('app').classList.remove('hide');$('fab').classList.remove('hide');$('btnSair').classList.toggle('hide',false)}
