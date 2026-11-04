@@ -177,7 +177,7 @@ async function carregar(){
   const e=c.error||f.error||l.error||g.error||ct.error||im.error;if(e){toast('Erro ao carregar: '+e.message);return}
   S.cartoes=c.data;S.fixas=f.data;S.lanc=l.data.map(x=>({...x,valor:+x.valor}));S.contas=ct.data;S.importacoes=im.data;
   S.saldoInicial=+(g.data?.saldo_inicial||0)+S.contas.reduce((a,x)=>a+ +x.saldo_inicial,0);
-  S.ultimaSync=g.data?.ultima_sync||null;S.faturasOf=(fo&&fo.data)||[];
+  S.ultimaSync=g.data?.ultima_sync||null;S.saldoConfig=+(g.data?.saldo_inicial||0);S.faturasOf=(fo&&fo.data)||[];
 }
 let sincronizando=false;
 async function sincronizar(silencioso){
@@ -230,8 +230,7 @@ function resumo(m){
   });fat=S.cartoes.reduce((a,c)=>a+faturaCartao(c,m),0);
   return{ent,desp:sai+cart,fat,cat}
 }
-function caixaAte(m){let t=S.saldoInicial;S.lanc.forEach(l=>{const lm=l.data.slice(0,7);
-  if(l.tipo==='entrada'&&lm<=m)t+=l.valor;else if(l.tipo==='saida'&&lm<=m&&l.status!=='pendente')t-=l.valor;else if(l.tipo==='cartao'&&mesFatura(l)<=m)t-=l.valor});return t}
+function caixaAte(m){let t=S.saldoConfig||0;S.contas.forEach(c=>t+=saldoConta(c));S.lanc.forEach(l=>{if(l.conta_id||l.tipo==='cartao'||l.status==='pendente')return;const lm=l.data.slice(0,7);if(lm>m)return;t+=l.tipo==='entrada'?l.valor:-l.valor});return t}
 const pendentes=()=>S.lanc.filter(l=>l.status==='pendente');
 const fixaPaga=(f,m)=>S.lanc.some(l=>l.fixa_id===f.id&&l.data.startsWith(m));
 function projecao(m){ // comprometido no mês m
@@ -276,7 +275,7 @@ function vInicio(){
   const meses=[0,1,2,3,4,5].map(i=>addMes(mesAtual(),i));
   $('view').innerHTML=`
   <div class="grid k4">
-    <div class="card kpi"><small>${I('wallet')} Saldo atual</small><div class="v ${cx<0?'neg':''}">${BRL(cx)}</div><div class="s">já descontando faturas</div></div>
+    <div class="card kpi"><small>${I('wallet')} Saldo atual</small><div class="v ${cx<0?'neg':''}">${BRL(cx)}</div><div class="s">soma das suas contas</div></div>
     <div class="card kpi"><small><span class="pos" style="display:flex">${I('up')}</span> Receitas do mês</small><div class="v">${BRL(r.ent)}</div><div class="s">resultado: <b class="${r.ent-r.desp<0?'neg':'pos'}">${BRL(r.ent-r.desp)}</b></div></div>
     <div class="card kpi"><small><span class="neg" style="display:flex">${I('down')}</span> Despesas do mês</small><div class="v">${BRL(r.desp)}</div><div class="s">à vista + cartão</div></div>
     <div class="card kpi"><small>${I('card')} Faturas em aberto</small><div class="v">${BRL(r.fat)}</div><div class="s">${S.cartoes.length} cartões</div></div>
