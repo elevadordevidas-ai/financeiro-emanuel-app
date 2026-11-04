@@ -235,6 +235,7 @@ function vInicio(){
     <div class="card kpi"><small><span class="neg">↓</span> Despesas do mês</small><div class="v">${BRL(r.desp)}</div><div class="s">à vista + cartão</div></div>
     <div class="card kpi"><small>🧾 Faturas em aberto</small><div class="v">${BRL(r.fat)}</div><div class="s">${S.cartoes.length} cartões</div></div>
   </div>
+  ${cardRadar()}
   <div class="grid g2">
     <div class="card"><h3>Projeção <a class="hint" style="cursor:pointer" onclick="ir('proj')">Ver projeção →</a></h3>
       <div class="hint">${esc(nomeMes(meses[1]))} já tem</div><div style="font-size:26px;font-weight:800">${BRL(projecao(meses[1]).total)}</div>
@@ -246,6 +247,29 @@ function vInicio(){
     <div class="card"><h3>Agenda da semana</h3>${ag.length?ag.map(a=>`<div class="item"><div class="ico" style="background:#eef2fb;color:var(--navy)">${a.d.slice(8)}</div><div class="nm"><b>${esc(a.nome)}</b><small>${a.sub}</small></div><b class="neg">${BRL(a.v)}</b></div>`).join(''):'<div class="empty">Nada vence nos próximos 7 dias 🎉</div>'}</div>
     <div class="card"><h3>Gastos por categoria</h3>${cats.length?cats.map(([k,v],i)=>`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between"><span>${esc(k)}</span><b>${BRL(v)} <span class="hint">${Math.round(v/totC*100)}%</span></b></div><div class="bar"><i style="width:${v/cats[0][1]*100}%;background:${CORES[i%CORES.length]}"></i></div></div>`).join(''):'<div class="empty">Sem gastos neste mês</div>'}</div>
   </div>`;
+}
+// ---------- radar: leitura de 10 segundos ----------
+function radar(){
+  const out=[],h=hojeStr(),dia=+h.slice(8),m=mesAtual(),dias=d=>Math.round((new Date(h+'T12:00')-new Date(d+'T12:00'))/864e5);
+  const gasto=(mm,ate)=>S.lanc.filter(l=>(l.tipo==='saida'||l.tipo==='cartao')&&l.data.startsWith(mm)&&+l.data.slice(8)<=ate).reduce((a,l)=>a+l.valor,0);
+  const prev=[1,2].map(i=>gasto(addMes(m,-i),dia)).filter(x=>x>0),media=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:0,atual=gasto(m,dia);
+  if(media>0){const p=Math.round((atual/media-1)*100);out.push({n:Math.abs(p)<10?'ok':p>0?'alerta':'ok',t:`Até o dia ${dia} você gastou ${BRL(atual)}: ${Math.abs(p)<10?'no ritmo da média':p>0?p+'% acima da média':(-p)+'% abaixo da média'} dos meses anteriores (${BRL(media)}).`})}
+  else if(atual>0)out.push({n:'info',t:`Até o dia ${dia} você gastou ${BRL(atual)}. Faltam meses anteriores para comparar o ritmo.`});
+  const catMes=(mm)=>{const c={};S.lanc.filter(l=>(l.tipo==='saida'||l.tipo==='cartao')&&l.data.startsWith(mm)&&+l.data.slice(8)<=dia).forEach(l=>c[l.categoria]=(c[l.categoria]||0)+l.valor);return c};
+  const ca=catMes(m),cp=catMes(addMes(m,-1));let top=null;Object.entries(ca).forEach(([k,v])=>{const base=cp[k]||0;if(v>300&&v>base*1.3&&(!top||v-base>top.d))top={k,v,base,d:v-base}});
+  if(top)out.push({n:'alerta',t:`${top.k} subiu: ${BRL(top.v)} neste mês contra ${BRL(top.base)} no mesmo período do mês passado.`});
+  S.cartoes.forEach(c=>{const f=S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===m).reduce((a,l)=>a+l.valor,0);if(+c.limite>0&&f/c.limite>=.8)out.push({n:'alerta',t:`A fatura do ${c.nome} já usa ${Math.round(f/c.limite*100)}% do limite (${BRL(f)} de ${BRL(c.limite)}).`})});
+  agenda().slice(0,3).forEach(a=>{const d=Math.max(0,-dias(a.d));out.push({n:'info',t:`${a.nome} vence ${d===0?'hoje':d===1?'amanhã':'em '+d+' dias'}: ${BRL(-a.v)}.`})});
+  S.contas.forEach(c=>{const ds=S.lanc.filter(l=>l.conta_id===c.id).map(l=>l.data).sort(),ult=ds[ds.length-1];
+    if(!ult)out.push({n:'info',t:`A conta ${c.nome} ainda não tem lançamentos. Importe o extrato.`});
+    else if(dias(ult)>7)out.push({n:'alerta',t:`A conta ${c.nome} está sem lançamentos há ${dias(ult)} dias. Importe o extrato mais recente.`});
+    if(saldoConta(c)<0)out.push({n:'alerta',t:`O saldo calculado de ${c.nome} está negativo (${BRL(saldoConta(c))}). Use "Ajustar saldo" em Contas.`})});
+  if(!out.length)out.push({n:'ok',t:'Tudo tranquilo por aqui. Nada fora do normal hoje.'});
+  return out;
+}
+function cardRadar(){
+  const cor={ok:'var(--grn)',alerta:'var(--org)',info:'var(--navy2)'};
+  return `<div class="card" style="margin-top:14px"><h3>📡 Radar <span class="hint">leitura de 10 segundos</span></h3>${radar().map(x=>`<div class="item" style="padding:9px 0"><span style="width:10px;height:10px;border-radius:50%;background:${cor[x.n]};flex:none"></span><div class="nm" style="white-space:normal">${esc(x.t)}</div></div>`).join('')}</div>`;
 }
 function barras(meses){
   const d=meses.map(m=>({m,p:projecao(m)})),mx=Math.max(1,...d.map(x=>x.p.total));
