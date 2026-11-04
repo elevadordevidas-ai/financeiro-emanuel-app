@@ -109,6 +109,8 @@ td{padding:10px 6px;border-bottom:1px solid var(--line);font-size:14px}tr:last-c
 .shgrid a.on{background:var(--acd);color:var(--ac);border-color:transparent}
 .shgrid .ic{width:22px;height:22px}
 @media(max-width:860px){.mnu{display:flex}nav a:nth-child(n+5):not(.mnu){display:none}}
+.donut{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.donut svg{flex:none}
+.leg2{flex:1;min-width:200px;display:grid;gap:8px;font-size:13px}.leg2>div{display:flex;align-items:center;gap:8px}.leg2 i{width:9px;height:9px;border-radius:3px;flex:none}.leg2 span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.leg2 b{font-weight:600;font-variant-numeric:tabular-nums}.leg2 em{color:var(--mut);font-style:normal;width:34px;text-align:right}
 </style>
 </head>
 <body>
@@ -262,7 +264,7 @@ function resumo(m){
   });fat=S.cartoes.reduce((a,c)=>a+faturaCartao(c,m),0);
   return{ent,desp:sai+cart,fat,cat}
 }
-function caixaAte(m){let t=S.saldoConfig||0;S.contas.forEach(c=>t+=saldoConta(c));S.lanc.forEach(l=>{if(l.conta_id||l.tipo==='cartao'||l.status==='pendente')return;const lm=l.data.slice(0,7);if(lm>m)return;t+=l.tipo==='entrada'?l.valor:-l.valor});return t}
+function caixaAte(m){let t=S.saldoConfig||0;S.contas.forEach(c=>t+=saldoConta(c));if(!S.contas.length){S.lanc.forEach(l=>{if(l.tipo==='cartao'||l.status==='pendente')return;if(l.data.slice(0,7)>m)return;t+=l.tipo==='entrada'?l.valor:-l.valor})}return t}
 const pendentes=()=>S.lanc.filter(l=>l.status==='pendente');
 const fixaPaga=(f,m)=>S.lanc.some(l=>l.fixa_id===f.id&&l.data.startsWith(m));
 function projecao(m){ // comprometido no mês m
@@ -314,6 +316,11 @@ function vInicio(){
   </div>
   ${cardRadar()}
   <div class="grid g2">
+    <div class="card"><h3>Saldo por conta <span class="tag">${BRL(cx)}</span></h3>${S.contas.length?donut(S.contas.map((c,i)=>({l:c.nome,v:Math.max(0,saldoConta(c)),c:CORES[i%CORES.length]})).filter(x=>x.v>0),BRL(cx),'saldo total'):'<div class="empty">Cadastre suas contas em Contas</div>'}
+      ${S.contas.length?'<div class="hint" style="margin-top:12px">Soma de todas as contas cadastradas (pessoa física e jurídica). Contas que o banco ainda não sincronizou entram só depois de importar o extrato.</div>':''}</div>
+    <div class="card"><h3>Faturas dos cartões <span class="tag">${BRL(r.fat)}</span></h3>${S.cartoes.some(c=>faturaCartao(c,ym)>0)?donut(S.cartoes.map((c,i)=>({l:c.nome,v:faturaCartao(c,ym),c:CORES[i%CORES.length]})).filter(x=>x.v>0),BRL(r.fat),'em aberto'):'<div class="empty">Sem faturas neste mês</div>'}</div>
+  </div>
+  <div class="grid g2">
     <div class="card"><h3>Projeção <a class="hint" style="cursor:pointer" onclick="ir('proj')">Ver projeção</a></h3>
       <div class="hint">${esc(nomeMes(meses[1]))} já tem</div><div style="font-size:26px;font-weight:800">${BRL(projecao(meses[1]).total)}</div>
       ${barras(meses)}</div>
@@ -322,7 +329,7 @@ function vInicio(){
   </div>
   <div class="grid g2">
     <div class="card"><h3>Agenda da semana</h3>${ag.length?ag.map(a=>`<div class="item"><div class="ico chip">${a.d.slice(8)}</div><div class="nm"><b>${esc(a.nome)}</b><small>${a.sub}</small></div><b class="neg">${BRL(a.v)}</b></div>`).join(''):'<div class="empty">Nada vence nos próximos 7 dias</div>'}</div>
-    <div class="card"><h3>Gastos por categoria</h3>${cats.length?cats.map(([k,v],i)=>`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between"><span>${esc(k)}</span><b>${BRL(v)} <span class="hint">${Math.round(v/totC*100)}%</span></b></div><div class="bar"><i style="width:${v/cats[0][1]*100}%;background:${CORES[i%CORES.length]}"></i></div></div>`).join(''):'<div class="empty">Sem gastos neste mês</div>'}</div>
+    <div class="card"><h3>Gastos por categoria <span class="hint">${nomeMes(ym)}</span></h3>${cats.length?donut(cats.slice(0,8).map(([k,v],i)=>({l:k,v,c:CORES[i%CORES.length]})),BRL(totC),'gastos'):'<div class="empty">Sem gastos neste mês</div>'}</div>
   </div>`;
 }
 // ---------- radar: leitura de 10 segundos ----------
@@ -350,6 +357,10 @@ function cardRadar(){
   const cor={ok:'var(--grn)',alerta:'var(--org)',info:'var(--navy2)'};
   return `<div class="card" style="margin-top:14px"><h3><span style="display:flex;gap:8px;align-items:center">${I('radar')} Radar</span> <span class="hint">leitura de 10 segundos</span></h3>${radar().map(x=>`<div class="item" style="padding:9px 0"><span style="width:10px;height:10px;border-radius:50%;background:${cor[x.n]};flex:none"></span><div class="nm" style="white-space:normal">${esc(x.t)}</div></div>`).join('')}</div>`;
 }
+function donut(d,centro,sub){
+  const tot=d.reduce((a,x)=>a+x.v,0)||1,R=54,C=2*Math.PI*R;let off=0;
+  const arcs=d.map(x=>{const f=x.v/tot,s='<circle r="'+R+'" cx="70" cy="70" fill="none" stroke="'+x.c+'" stroke-width="20" stroke-dasharray="'+(f*C)+' '+C+'" stroke-dashoffset="'+(-off*C)+'" transform="rotate(-90 70 70)"/>';off+=f;return s}).join('');
+  return '<div class="donut"><svg viewBox="0 0 140 140" width="160" height="160"><circle r="54" cx="70" cy="70" fill="none" stroke="var(--chip)" stroke-width="20"/>'+arcs+'<text x="70" y="64" text-anchor="middle" fill="var(--mut)" font-size="8.5">'+esc(sub||'')+'</text><text x="70" y="80" text-anchor="middle" fill="var(--tx)" font-size="11" font-weight="700">'+centro+'</text></svg><div class="leg2">'+d.map(x=>'<div><i style="background:'+x.c+'"></i><span>'+esc(x.l)+'</span><b>'+BRL(x.v)+'</b><em>'+Math.round(x.v/tot*100)+'%</em></div>').join('')+'</div></div>'}
 function barras(meses){
   const d=meses.map(m=>({m,p:projecao(m)})),mx=Math.max(1,...d.map(x=>x.p.total));
   return `<div class="cols">${d.map(x=>`<div class="col ${x.m===mesAtual()?'cur':''}"><div class="stk" style="height:${Math.max(4,x.p.total/mx*130)}px">${x.p.porCartao.map(c=>`<div style="height:${x.p.total?c.v/x.p.total*100:0}%;background:${corCartao(c.c.id)}"></div>`).join('')}<div style="height:${x.p.total?x.p.contas/x.p.total*100:0}%;background:#64748b"></div></div>${mesCurto(x.m)}</div>`).join('')}</div>
