@@ -95,6 +95,11 @@ td{padding:10px 6px;border-bottom:1px solid var(--line);font-size:14px}tr:last-c
   .box{padding:16px}.two{grid-template-columns:1fr}
 }
 @media(max-width:520px){.kpi .v{font-size:19px}.card{padding:14px}.kpi small{font-size:12px}.top .row>button[onclick*="arq"]{display:none}}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.ct .art{height:158px;border-radius:12px;padding:16px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;background-size:cover;position:relative;overflow:hidden}
+.ct .art:after{content:"";position:absolute;right:-40px;top:-40px;width:150px;height:150px;border-radius:50%;background:#ffffff14}
+.ct .arttop{display:flex;justify-content:space-between;align-items:center;font-size:15px;position:relative;z-index:1}
+.ct .artfin{font-size:19px;letter-spacing:.14em;font-weight:600;position:relative;z-index:1;text-shadow:0 1px 6px #0006}
 </style>
 </head>
 <body>
@@ -343,10 +348,45 @@ function listaLanc(){
   const ls=S.lanc.filter(l=>l.data.startsWith(ym)&&(!t||l.tipo===t)&&(!q||(l.descricao+l.categoria+l.finalidade).toLowerCase().includes(q))).sort((a,b)=>b.data.localeCompare(a.data));
   $('tb').innerHTML=ls.length?ls.map(l=>`<tr><td>${l.data.slice(8)}/${l.data.slice(5,7)}</td><td>${esc(l.descricao)}${l.parcela_total?` <span class="hint">${l.parcela_num}/${l.parcela_total}</span>`:''}${l.cartao_id&&cartao(l.cartao_id)?` <span class="hint">· ${esc(cartao(l.cartao_id).nome)}</span>`:''}${l.finalidade?`<div class="hint">${esc(l.finalidade)}</div>`:''}</td><td><span class="tag">${esc(l.categoria)}</span></td><td class="n ${l.tipo==='entrada'?'pos':'neg'}"><b>${l.tipo==='entrada'?'+':'−'} ${BRL(l.valor)}</b></td><td class="n">${l.comprovante?`<button class="sm" onclick="verComp('${esc(l.comprovante)}')">${I('clip')}</button> `:''}<button class="sm" onclick="abrirLanc('${l.id}')">editar</button></td></tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhum lançamento neste mês</td></tr>';
 }
+const MARCAS=[[/c6/i,['#161616','#3b3b3b']],[/santander/i,['#b5121b','#e8423a']],[/caixa/i,['#0a5ea8','#2a9be0']],[/renner|realize/i,['#c8102e','#ec4a60']],[/atacad|carrefour/i,['#e85d00','#ffa42e']],[/midway|riachuelo/i,['#0b3d91','#3a78e0']],[/nubank/i,['#6a0dad','#b05cf5']],[/ita[uú]/i,['#ec7000','#ffa24a']],[/inter/i,['#e85c0d','#ff8d45']],[/c&a/i,['#0a2a6c','#3563c4']],[/sam.?s/i,['#0b2a5b','#2f5fae']]];
+function fundoCartao(c){const m=MARCAS.find(x=>x[0].test(c.nome)),g=m?m[1]:['#263041','#4a5a78'];return 'linear-gradient(135deg,'+g[0]+','+g[1]+')'}
+function finalDe(c){const m=(c.nome||'').match(/(\d{4})\s*$/);return m?m[1]:''}
+function nomeSemFinal(c){return (c.nome||'').replace(/\s*\d{4}\s*$/,'')}
 function vCartoes(){
-  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Seus cartões</h3>${S.cartoes.map(c=>{const f=faturaCartao(c,ym);return `<div class="item"><div class="ico" style="background:${corCartao(c.id)}">${esc(c.nome[0])}</div><div class="nm"><b>${esc(c.nome)}</b><small>fecha dia ${c.fechamento} · vence dia ${c.vencimento}${+c.limite?' · limite '+BRL(c.limite):''}</small>${finaisTxt(c)}${+c.limite?`<div class="bar"><i style="width:${Math.min(100,f/c.limite*100)}%"></i></div>`:''}</div><div style="text-align:right"><b>${BRL(f)}</b><br><button class="sm" onclick="editaCartao('${c.id}')">editar</button> <button class="sm" onclick="oficialFatura('${c.id}')">fatura oficial</button> <button class="sm dan" onclick="delItem('cartoes','${c.id}','cartão')">remover</button></div></div>`}).join('')||'<div class="empty">Nenhum cartão cadastrado</div>'}</div>
-  <div class="card"><h3>Novo cartão</h3><label>Nome</label><input id="cn" placeholder="Ex.: Nubank"><div class="two"><div><label>Dia de fechamento</label><input id="cf" type="number" min="1" max="31" value="25"></div><div><label>Dia de vencimento</label><input id="cv" type="number" min="1" max="31" value="5"></div></div><label>Limite (opcional)</label><input id="cl" inputmode="decimal"><button class="pri" style="margin-top:14px" onclick="addCartao()">Adicionar cartão</button></div></div>`;
+  const tiles=S.cartoes.map(c=>{const f=faturaCartao(c,ym),usado=+c.limite?Math.min(100,f/c.limite*100):0,fin=finalDe(c);
+    return `<div class="card ct"><div class="art" id="art-${c.id}" style="background:${fundoCartao(c)}"><div class="arttop"><b>${esc(nomeSemFinal(c))}</b>${I('card')}</div><div><div class="artfin">${fin?'•••• '+fin:''}</div></div></div>
+    <div class="row" style="justify-content:space-between;align-items:flex-end;margin-top:14px"><div><div class="hint">Fatura de ${nomeMes(ym)}${ofiFatura(c,ym)?' (oficial)':''}</div><div style="font-size:24px;font-weight:700;letter-spacing:-.02em">${BRL(f)}</div></div><div class="hint" style="text-align:right">vence dia ${c.vencimento}<br>fecha dia ${c.fechamento}</div></div>
+    ${+c.limite?`<div class="bar" style="margin-top:12px"><i style="width:${usado}%"></i></div><div class="hint" style="margin-top:5px">limite ${BRL(c.limite)}</div>`:''}
+    ${finaisTxt(c)}
+    <div class="row" style="margin-top:14px"><button class="sm" onclick="abrirCartao('${c.id}')">Editar</button><button class="sm" onclick="faturaPdfDe('${c.id}')">Importar fatura PDF</button></div></div>`}).join('');
+  $('view').innerHTML=`<div class="row" style="margin-bottom:14px;justify-content:space-between"><div class="hint">Toque em Editar para mudar fechamento, vencimento, limite, valor oficial da fatura e a foto do cartão.</div><button class="pri" onclick="abrirNovoCartao()">${I('plus')} Novo cartão</button></div>
+  <div class="cgrid">${tiles||'<div class="card empty">Nenhum cartão cadastrado</div>'}</div>`;
+  S.cartoes.filter(c=>c.foto_path&&!DEMO).forEach(c=>{sb.storage.from('comprovantes').createSignedUrl(c.foto_path,3600).then(r=>{if(r.data){const el=document.getElementById('art-'+c.id);if(el)el.style.background='url('+r.data.signedUrl+') center/cover'}})});
 }
+function faturaPdfDe(id){ir('import');setTimeout(()=>{const s=$('pdest');if(s){s.value=id;s.scrollIntoView({behavior:'smooth',block:'center'})}},60)}
+function abrirNovoCartao(){
+  modal(`<h2>Novo cartão</h2><label>Nome (coloque o final no fim, ex.: Renner 1234)</label><input id="cn" placeholder="Ex.: Renner 1234"><div class="two"><div><label>Dia de fechamento</label><input id="cf" type="number" min="1" max="31" value="25"></div><div><label>Dia de vencimento</label><input id="cv" type="number" min="1" max="31" value="5"></div></div><label>Limite (R$)</label><input id="cl" inputmode="decimal">
+  <div class="row" style="margin-top:18px;justify-content:flex-end"><button onclick="fechar()">Cancelar</button><button class="pri" onclick="addCartao().then(fechar)">Adicionar</button></div>`)}
+function abrirCartao(id){
+  const c=S.cartoes.find(x=>x.id===id),o=ofiFatura(c,ym);
+  modal(`<h2>${esc(c.nome)}</h2><label>Nome</label><input id="cn2" value="${esc(c.nome)}">
+  <div class="two"><div><label>Dia de fechamento</label><input id="cf2" type="number" min="1" max="31" value="${c.fechamento}"></div><div><label>Dia de vencimento</label><input id="cv2" type="number" min="1" max="31" value="${c.vencimento}"></div></div>
+  <label>Limite (R$)</label><input id="cl2" inputmode="decimal" value="${c.limite||''}">
+  <label>Valor oficial da fatura de ${nomeMes(ym)} (opcional)</label><input id="co2" inputmode="decimal" value="${o?o.valor:''}" placeholder="Como aparece no app do banco. Vazio = cálculo automático">
+  <label>Foto do cartão (opcional)</label><input id="cfoto" type="file" accept="image/*">
+  <div class="row" style="margin-top:18px;justify-content:space-between"><button class="dan" onclick="fechar();delItem('cartoes','${id}','cartão')">Remover cartão</button><div class="row"><button onclick="fechar()">Cancelar</button><button class="pri" onclick="salvaCartao('${id}')">Salvar</button></div></div>`)}
+async function salvaCartao(id){
+  if(DEMO){toast('Modo demonstração: nada é gravado');return}
+  const c=S.cartoes.find(x=>x.id===id),f=+$('cf2').value,v=+$('cv2').value,l=num($('cl2').value);
+  if(!(f>=1&&f<=31&&v>=1&&v<=31)){toast('Dias inválidos');return}
+  const up={nome:$('cn2').value.trim()||c.nome,fechamento:f,vencimento:v,limite:isNaN(l)?0:l};
+  const arq=$('cfoto').files[0];
+  if(arq){try{const p=await prepara(arq);const path=S.uid+'/cartoes/'+id+'_'+Date.now()+'.jpg';const r=await sb.storage.from('comprovantes').upload(path,p.blob,{contentType:p.mime});if(r.error)throw new Error(r.error.message);up.foto_path=path}catch(e){toast('Foto não salva: '+e.message);return}}
+  const r=await sb.from('cartoes').update(up).eq('id',id);if(r.error){toast('Erro: '+r.error.message);return}
+  const ov=$('co2').value.trim(),o=ofiFatura(c,ym);
+  if(ov===''){if(o)await sb.from('faturas_oficiais').delete().eq('id',o.id)}
+  else{const n=num(ov);if(!isNaN(n))await sb.from('faturas_oficiais').upsert({cartao_id:id,mes:ym,valor:n},{onConflict:'cartao_id,mes'})}
+  fechar();toast('Cartão atualizado');recarrega()}
 function vFixas(){
   $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Despesas fixas <span class="tag">${BRL(S.fixas.reduce((a,f)=>a+f.valor,0))}/mês</span></h3>${S.fixas.map(f=>`<div class="item"><div class="nm"><b>${esc(f.descricao)}</b><small>dia ${f.dia} · ${esc(f.categoria)}</small></div><b>${BRL(f.valor)}</b>${fixaPaga(f,ym)?`<span class="pos" style="display:inline-flex;gap:4px;align-items:center">${I('check')} pago</span>`:`<button class="sm" onclick="pagarFixa('${f.id}')">Pagar</button>`}<button class="sm dan" onclick="delItem('fixas','${f.id}','conta fixa')">${I('x')}</button></div>`).join('')||'<div class="empty">Cadastre aluguel, internet, luz…</div>'}</div>
   <div class="card"><h3>Nova despesa fixa</h3><label>Nome</label><input id="xn" placeholder="Ex.: Aluguel"><div class="two"><div><label>Valor</label><input id="xv" inputmode="decimal"></div><div><label>Dia do vencimento</label><input id="xd" type="number" min="1" max="31" value="5"></div></div><label>Categoria</label><select id="xc">${CAT_S.map(c=>`<option ${c==='Moradia'?'selected':''}>${c}</option>`).join('')}</select><button class="pri" style="margin-top:14px" onclick="addFixa()">Adicionar</button></div></div>`;
