@@ -349,7 +349,9 @@ async function prepara(file){
   const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.85));return{blob,mime:'image/jpeg',name:file.name.replace(/\.\w+$/,'')+'.jpg'}}
 const b64=blob=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result.split(',')[1]);f.readAsDataURL(blob)});
 async function processaArquivo(file){
-  if(!file)return;if(DEMO){toast('Modo demonstração: a IA fica ligada só com login');return}
+  if(!file)return;
+  if(/\.(ofx|csv|txt|xlsx?)$/i.test(file.name)){toast('Isso é um extrato: use a aba Importar');ir('import');return}
+  if(DEMO){toast('Modo demonstração: a IA fica ligada só com login');return}
   toast('Lendo o comprovante…');
   try{pend=await prepara(file);
     const {data,error}=await sb.functions.invoke('ler-comprovante',{body:{base64:await b64(pend.blob),mime:pend.mime}});
