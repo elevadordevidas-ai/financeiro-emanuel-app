@@ -151,17 +151,17 @@ const cartao=id=>S.cartoes.find(c=>c.id===id);
 const corCartao=id=>{const i=S.cartoes.findIndex(c=>c.id===id);return CORES[(i<0?0:i)%CORES.length]};
 async function carregar(){
   if(DEMO){demo();return}
-  const [c,f,l,g,ct,im]=await Promise.all([
+  const [c,f,l,g,ct,im,fo]=await Promise.all([
     sb.from('cartoes').select('*').order('criado_em'),
     sb.from('fixas').select('*').order('dia'),
     todos(()=>sb.from('lancamentos').select('*').order('data',{ascending:false}).order('id')),
     sb.from('config').select('*').maybeSingle(),
     sb.from('contas').select('*').order('criado_em'),
-    sb.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(30)]);
+    sb.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(30),sb.from('faturas_oficiais').select('*')]);
   const e=c.error||f.error||l.error||g.error||ct.error||im.error;if(e){toast('Erro ao carregar: '+e.message);return}
   S.cartoes=c.data;S.fixas=f.data;S.lanc=l.data.map(x=>({...x,valor:+x.valor}));S.contas=ct.data;S.importacoes=im.data;
   S.saldoInicial=+(g.data?.saldo_inicial||0)+S.contas.reduce((a,x)=>a+ +x.saldo_inicial,0);
-  S.ultimaSync=g.data?.ultima_sync||null;
+  S.ultimaSync=g.data?.ultima_sync||null;S.faturasOf=(fo&&fo.data)||[];
 }
 let sincronizando=false;
 async function sincronizar(silencioso){
@@ -196,6 +196,13 @@ function demo(){
   L({tipo:'saida',status:'pago',descricao:'Pensão alimentícia',beneficiario:'Mãe do João',valor:1800,data:m+'-02',categoria:'Pensão alimentícia',finalidade:'pensão do mês',comprovante:'x'});
   P('Notebook Dell',4799,10,4,'c1');P('Geladeira',3588,12,3,'c2');P('Sofá retrátil',2890,5,1,'c1');P('Passagens Recife',1740,6,1,'c3');
 }
+const ofiFatura=(c,m)=>(S.faturasOf||[]).find(x=>x.cartao_id===c.id&&x.mes===m);
+function faturaCartao(c,m){const o=ofiFatura(c,m);if(o)return +o.valor;return S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===m).reduce((a,l)=>a+l.valor,0)}
+async function oficialFatura(id){const c=S.cartoes.find(x=>x.id===id),o=ofiFatura(c,ym);
+  const v=prompt('Valor OFICIAL da fatura de '+nomeMes(ym)+' do '+c.nome+' (como aparece no app do banco). Deixe vazio para voltar ao cálculo automático:',o?o.valor:'');if(v===null)return;
+  if(v.trim()===''){if(o&&await db(sb?.from('faturas_oficiais').delete().eq('id',o.id))){toast('Voltou ao cálculo automático');recarrega()}return}
+  const n=num(v);if(isNaN(n)||n<0){toast('Valor inválido');return}
+  if(await db(sb?.from('faturas_oficiais').upsert({cartao_id:id,mes:ym,valor:n},{onConflict:'cartao_id,mes'}))){toast('Fatura oficial salva');recarrega()}}
 function mesFatura(l){const c=cartao(l.cartao_id);const m=l.data.slice(0,7);if(!c)return m;return +l.data.slice(8,10)>(+c.fechamento||31)?addMes(m,1):m}
 function vencimento(c,m){const base=c.vencimento>c.fechamento?m:addMes(m,1);return base+'-'+pad(Math.min(c.vencimento,diasNoMes(base)))}
 function resumo(m){
@@ -204,7 +211,7 @@ function resumo(m){
     if(l.tipo==='entrada'&&lm===m)ent+=l.valor;
     if(l.tipo==='saida'&&lm===m&&l.status!=='pendente'){sai+=l.valor;cat[l.categoria]=(cat[l.categoria]||0)+l.valor}
     if(l.tipo==='cartao'&&lm===m){cart+=l.valor;cat[l.categoria]=(cat[l.categoria]||0)+l.valor}
-    if(l.tipo==='cartao'&&mesFatura(l)===m)fat+=l.valor});
+  });fat=S.cartoes.reduce((a,c)=>a+faturaCartao(c,m),0);
   return{ent,desp:sai+cart,fat,cat}
 }
 function caixaAte(m){let t=S.saldoInicial;S.lanc.forEach(l=>{const lm=l.data.slice(0,7);
@@ -212,7 +219,7 @@ function caixaAte(m){let t=S.saldoInicial;S.lanc.forEach(l=>{const lm=l.data.sli
 const pendentes=()=>S.lanc.filter(l=>l.status==='pendente');
 const fixaPaga=(f,m)=>S.lanc.some(l=>l.fixa_id===f.id&&l.data.startsWith(m));
 function projecao(m){ // comprometido no mês m
-  const porCartao=S.cartoes.map(c=>({c,v:S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===m).reduce((a,l)=>a+l.valor,0)}));
+  const porCartao=S.cartoes.map(c=>({c,v:faturaCartao(c,m)}));
   const atual=mesAtual();const contas=S.fixas.filter(f=>m>atual||(m===atual&&!fixaPaga(f,m))).reduce((a,f)=>a+f.valor,0)+pendentes().filter(l=>(l.vencimento||l.data).startsWith(m)||(m===atual&&(l.vencimento||l.data)<atual+'-01')).reduce((a,l)=>a+l.valor,0);
   return{porCartao,contas,total:porCartao.reduce((a,x)=>a+x.v,0)+contas}
 }
@@ -229,7 +236,7 @@ function agenda(){
   const dt=s=>new Date(s+'T12:00'),dentro=s=>dt(s)>=hoje&&dt(s)<=lim;
   [mesAtual(),addMes(mesAtual(),1)].forEach(m=>{
     S.fixas.forEach(f=>{const d=m+'-'+pad(Math.min(f.dia,diasNoMes(m)));if(dentro(d)&&!fixaPaga(f,m))out.push({d,nome:f.descricao,sub:'Conta fixa',v:-f.valor})});
-    S.cartoes.forEach(c=>{[addMes(m,-1),m].forEach(fm=>{const d=vencimento(c,fm);if(dentro(d)&&d.slice(0,7)===m){const v=S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===fm).reduce((a,l)=>a+l.valor,0);if(v>0&&!out.some(o=>o.d===d&&o.nome==='Fatura '+c.nome))out.push({d,nome:'Fatura '+c.nome,sub:'Cartão',v:-v})}})})
+    S.cartoes.forEach(c=>{[addMes(m,-1),m].forEach(fm=>{const d=vencimento(c,fm);if(dentro(d)&&d.slice(0,7)===m){const v=faturaCartao(c,fm);if(v>0&&!out.some(o=>o.d===d&&o.nome==='Fatura '+c.nome))out.push({d,nome:'Fatura '+c.nome,sub:'Cartão',v:-v})}})})
   });
   pendentes().forEach(l=>{const d=l.vencimento||l.data;if(dentro(d))out.push({d,nome:l.beneficiario||l.descricao,sub:'Boleto / conta a pagar',v:-l.valor})});
   return out.sort((a,b)=>a.d.localeCompare(b.d))
@@ -281,7 +288,7 @@ function radar(){
   const catMes=(mm)=>{const c={};S.lanc.filter(l=>(l.tipo==='saida'||l.tipo==='cartao')&&l.data.startsWith(mm)&&+l.data.slice(8)<=dia).forEach(l=>c[l.categoria]=(c[l.categoria]||0)+l.valor);return c};
   const ca=catMes(m),cp=catMes(addMes(m,-1));let top=null;Object.entries(ca).forEach(([k,v])=>{const base=cp[k]||0;if(v>300&&v>base*1.3&&(!top||v-base>top.d))top={k,v,base,d:v-base}});
   if(top)out.push({n:'alerta',t:`${top.k} subiu: ${BRL(top.v)} neste mês contra ${BRL(top.base)} no mesmo período do mês passado.`});
-  S.cartoes.forEach(c=>{const f=S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===m).reduce((a,l)=>a+l.valor,0);if(+c.limite>0&&f/c.limite>=.8)out.push({n:'alerta',t:`A fatura do ${c.nome} já usa ${Math.round(f/c.limite*100)}% do limite (${BRL(f)} de ${BRL(c.limite)}).`})});
+  S.cartoes.forEach(c=>{const f=faturaCartao(c,m);if(+c.limite>0&&f/c.limite>=.8)out.push({n:'alerta',t:`A fatura do ${c.nome} já usa ${Math.round(f/c.limite*100)}% do limite (${BRL(f)} de ${BRL(c.limite)}).`})});
   agenda().slice(0,3).forEach(a=>{const d=Math.max(0,-dias(a.d));out.push({n:'info',t:`${a.nome} vence ${d===0?'hoje':d===1?'amanhã':'em '+d+' dias'}: ${BRL(-a.v)}.`})});
   if(!DEMO&&S.contas.some(c=>c.pluggy_id)||S.ultimaSync){const h=S.ultimaSync?(Date.now()-new Date(S.ultimaSync).getTime())/36e5:1e9;if(h>48)out.push({n:'alerta',t:'A sincronização automática dos bancos está parada ('+textoSync()+'). Abra Contas e toque em Sincronizar bancos.'})}
   const atras=pendentes().filter(l=>(l.vencimento||l.data)<h);if(atras.length)out.push({n:'alerta',t:atras.length+' conta(s) a pagar vencida(s), somando '+BRL(atras.reduce((a,l)=>a+l.valor,0))+'. Abra "A pagar".'});
@@ -321,7 +328,7 @@ function listaLanc(){
   $('tb').innerHTML=ls.length?ls.map(l=>`<tr><td>${l.data.slice(8)}/${l.data.slice(5,7)}</td><td>${esc(l.descricao)}${l.parcela_total?` <span class="hint">${l.parcela_num}/${l.parcela_total}</span>`:''}${l.cartao_id&&cartao(l.cartao_id)?` <span class="hint">· ${esc(cartao(l.cartao_id).nome)}</span>`:''}${l.finalidade?`<div class="hint">${esc(l.finalidade)}</div>`:''}</td><td><span class="tag">${esc(l.categoria)}</span></td><td class="n ${l.tipo==='entrada'?'pos':'neg'}"><b>${l.tipo==='entrada'?'+':'−'} ${BRL(l.valor)}</b></td><td class="n">${l.comprovante?`<button class="sm" onclick="verComp('${esc(l.comprovante)}')">📎</button> `:''}<button class="sm" onclick="abrirLanc('${l.id}')">editar</button></td></tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhum lançamento neste mês</td></tr>';
 }
 function vCartoes(){
-  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Seus cartões</h3>${S.cartoes.map(c=>{const f=S.lanc.filter(l=>l.cartao_id===c.id&&mesFatura(l)===ym).reduce((a,l)=>a+l.valor,0);return `<div class="item"><div class="ico" style="background:${corCartao(c.id)}">${esc(c.nome[0])}</div><div class="nm"><b>${esc(c.nome)}</b><small>fecha dia ${c.fechamento} · vence dia ${c.vencimento}${+c.limite?' · limite '+BRL(c.limite):''}</small>${finaisTxt(c)}${+c.limite?`<div class="bar"><i style="width:${Math.min(100,f/c.limite*100)}%"></i></div>`:''}</div><div style="text-align:right"><b>${BRL(f)}</b><br><button class="sm" onclick="editaCartao('${c.id}')">editar</button> <button class="sm dan" onclick="delItem('cartoes','${c.id}','cartão')">remover</button></div></div>`}).join('')||'<div class="empty">Nenhum cartão cadastrado</div>'}</div>
+  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Seus cartões</h3>${S.cartoes.map(c=>{const f=faturaCartao(c,ym);return `<div class="item"><div class="ico" style="background:${corCartao(c.id)}">${esc(c.nome[0])}</div><div class="nm"><b>${esc(c.nome)}</b><small>fecha dia ${c.fechamento} · vence dia ${c.vencimento}${+c.limite?' · limite '+BRL(c.limite):''}</small>${finaisTxt(c)}${+c.limite?`<div class="bar"><i style="width:${Math.min(100,f/c.limite*100)}%"></i></div>`:''}</div><div style="text-align:right"><b>${BRL(f)}</b><br><button class="sm" onclick="editaCartao('${c.id}')">editar</button> <button class="sm" onclick="oficialFatura('${c.id}')">fatura oficial</button> <button class="sm dan" onclick="delItem('cartoes','${c.id}','cartão')">remover</button></div></div>`}).join('')||'<div class="empty">Nenhum cartão cadastrado</div>'}</div>
   <div class="card"><h3>Novo cartão</h3><label>Nome</label><input id="cn" placeholder="Ex.: Nubank"><div class="two"><div><label>Dia de fechamento</label><input id="cf" type="number" min="1" max="31" value="25"></div><div><label>Dia de vencimento</label><input id="cv" type="number" min="1" max="31" value="5"></div></div><label>Limite (opcional)</label><input id="cl" inputmode="decimal"><button class="pri" style="margin-top:14px" onclick="addCartao()">Adicionar cartão</button></div></div>`;
 }
 function vFixas(){
