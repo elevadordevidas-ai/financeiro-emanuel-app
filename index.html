@@ -574,6 +574,7 @@ function saldoConta(c){let t=+c.saldo_inicial;S.lanc.forEach(l=>{if(l.conta_id==
 function vContas(){
   const tot=S.contas.reduce((a,c)=>a+saldoConta(c),0);
   $('view').innerHTML=`<div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><div><b style="display:flex;gap:8px;align-items:center">${I('refresh')} Bancos conectados (Meu Pluggy)</b><div class="hint">Última sincronização: ${textoSync()}. Atualiza contas pessoais, cartões e lançamentos dos últimos 90 dias, sem duplicar.</div></div><button class="pri" onclick="sincronizar()">Sincronizar bancos agora</button></div></div>
+  <div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><div><b>Telegram</b><div class="hint">Mande gastos, fotos e PDFs de comprovante ou boleto pelo Telegram, direto do celular ou do app do banco (Compartilhar).</div></div><button onclick="vinculaTelegram()">Vincular Telegram</button></div></div>
   <div class="grid g2" style="margin-top:0"><div class="card"><h3>Suas contas <span class="tag">${BRL(tot)}</span></h3>${S.contas.map(c=>`<div class="item"><div class="ico chip">${I('bank')}</div><div class="nm"><b>${esc(c.nome)}</b><small>saldo inicial ${BRL(c.saldo_inicial)}</small></div><b class="${saldoConta(c)<0?'neg':''}">${BRL(saldoConta(c))}</b><button class="sm" onclick="ajustaSaldo('${c.id}')">Ajustar saldo</button><button class="sm dan" onclick="delItem('contas','${c.id}','conta')">${I('x')}</button></div>`).join('')||'<div class="empty">Cadastre a conta do banco (ex.: C6 Bank PJ)</div>'}</div>
   <div class="card"><h3>Nova conta</h3><label>Nome</label><input id="an" placeholder="Ex.: C6 Bank PJ"><label>Saldo inicial (hoje, antes de importar)</label><input id="as" inputmode="decimal" placeholder="0,00"><div class="hint" style="margin-top:8px">O saldo da conta = saldo inicial + entradas − saídas lançadas nela. Ao importar o extrato, use o saldo de antes do primeiro lançamento do arquivo.</div><button class="pri" style="margin-top:14px" onclick="addConta()">Adicionar conta</button></div></div>`;
 }
@@ -742,6 +743,13 @@ function abreMenu(){
   s.classList.add('on')}
 function fechaMenu(){$('sheet').classList.remove('on')}
 document.addEventListener('click',e=>{if(e.target.id==='sheet')fechaMenu()});
+
+async function vinculaTelegram(){
+  if(DEMO){toast('Modo demonstração');return}
+  const cod=String(Math.floor(100000+Math.random()*900000));
+  const r=await sb.from('telegram_vinculo').upsert({user_id:S.uid,codigo:cod,chat_id:null},{onConflict:'user_id'});
+  if(r.error){toast('Erro: '+r.error.message);return}
+  modal('<h2>Vincular o Telegram</h2><p class="hint">No Telegram, abra o seu bot e envie exatamente esta mensagem:</p><div style="font-size:22px;font-weight:700;letter-spacing:.04em;margin:12px 0;padding:14px;border:1px dashed var(--line);border-radius:12px;text-align:center">/start '+cod+'</div><p class="hint">O código vale uma vez. Depois de vinculado, só o seu Telegram consegue usar o bot.</p><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="pri" onclick="fechar()">Fechar</button></div>')}
 
 // ---------- entrada ----------
 function mostraApp(){$('login').classList.add('hide');$('app').classList.remove('hide');$('fab').classList.remove('hide');$('btnSair').classList.toggle('hide',false)}
