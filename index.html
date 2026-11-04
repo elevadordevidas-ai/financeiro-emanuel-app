@@ -159,7 +159,7 @@ function trocaTema(){const n=document.documentElement.dataset.theme==='light'?'d
 const SB_URL='https://nlwyjcxunyxzmcqwtymn.supabase.co',SB_KEY='sb_publishable_vUhozeC7cgFzc9ORL4Z4Qw_YXM6QfI_';
 const DEMO=location.hash==='#demo';
 const sb=DEMO?null:supabase.createClient(SB_URL,SB_KEY);
-const CAT_S=['Supermercado','Alimentação','Combustível','Moradia','Contas fixas','Saúde','Transporte','Lazer','Educação','Assinaturas','Compras','Impostos','Condomínio','Consórcio','Pensão alimentícia','Outros'];
+const CAT_S=['Supermercado','Alimentação','Combustível','Moradia','Contas fixas','Saúde','Transporte','Lazer','Educação','Assinaturas','Compras','Impostos','Condomínio','Consórcio','Pensão alimentícia','Seguro','Gás','Internet e telefone','Família','Outros'];
 const CAT_E=['Salário','Vendas / TB','Rendimentos','Outros'];
 const CORES=['#1fd6a8','#f97316','#7c5cff','#38bdf8','#e5484d','#eab308','#14b8a6','#ec4899'];
 const PALAVRAS={Supermercado:['mercado','supermerc','atacad','assai','carrefour','hortifruti','sacolao'],Alimentação:['restaurante','lanche','ifood','pizza','padaria','burger','cafe','acai'],Combustível:['posto','shell','ipiranga','gasolina','etanol'],Transporte:['uber','99','pedagio','estacion'],Saúde:['farmacia','drogaria','clinica','consulta'],Assinaturas:['netflix','spotify','youtube','prime','disney'],Moradia:['aluguel','condominio','iptu','energia','agua','internet']};
@@ -183,17 +183,17 @@ const cartao=id=>S.cartoes.find(c=>c.id===id);
 const corCartao=id=>{const i=S.cartoes.findIndex(c=>c.id===id);return CORES[(i<0?0:i)%CORES.length]};
 async function carregar(){
   if(DEMO){demo();return}
-  const [c,f,l,g,ct,im,fo]=await Promise.all([
+  const [c,f,l,g,ct,im,fo,rg]=await Promise.all([
     sb.from('cartoes').select('*').order('criado_em'),
     sb.from('fixas').select('*').order('dia'),
     todos(()=>sb.from('lancamentos').select('*').order('data',{ascending:false}).order('id')),
     sb.from('config').select('*').maybeSingle(),
     sb.from('contas').select('*').order('criado_em'),
-    sb.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(30),sb.from('faturas_oficiais').select('*')]);
+    sb.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(30),sb.from('faturas_oficiais').select('*'),sb.from('regras').select('*')]);
   const e=c.error||f.error||l.error||g.error||ct.error||im.error;if(e){toast('Erro ao carregar: '+e.message);return}
   S.cartoes=c.data;S.fixas=f.data;S.lanc=l.data.map(x=>({...x,valor:+x.valor}));S.contas=ct.data;S.importacoes=im.data;
   S.saldoInicial=+(g.data?.saldo_inicial||0)+S.contas.reduce((a,x)=>a+ +x.saldo_inicial,0);
-  S.ultimaSync=g.data?.ultima_sync||null;S.saldoConfig=+(g.data?.saldo_inicial||0);S.faturasOf=(fo&&fo.data)||[];
+  S.ultimaSync=g.data?.ultima_sync||null;S.saldoConfig=+(g.data?.saldo_inicial||0);S.faturasOf=(fo&&fo.data)||[];S.regras=(rg&&rg.data)||[];aplicaRegras();
 }
 let sincronizando=false;
 async function sincronizar(silencioso){
@@ -216,7 +216,7 @@ function demo(){
   const h=hojeStr(),m=h.slice(0,7);let k=0;const id=()=> 'd'+(++k);
   S.cartoes=[{id:'c1',nome:'Nubank Ultravioleta',fechamento:25,vencimento:2,limite:12000},{id:'c2',nome:'Itaú Click',fechamento:20,vencimento:27,limite:6000},{id:'c3',nome:'Inter Black',fechamento:28,vencimento:5,limite:8000}];
   S.fixas=[{id:'f1',descricao:'Aluguel',valor:2200,dia:5,categoria:'Moradia'},{id:'f2',descricao:'Internet',valor:119.9,dia:12,categoria:'Moradia'},{id:'f3',descricao:'Energia',valor:310,dia:+h.slice(8,10)+3>28?28:+h.slice(8,10)+3,categoria:'Moradia'}];
-  S.lanc=[];S.contas=[{id:'a1',nome:'C6 Bank PJ',tipo:'corrente',saldo_inicial:5000},{id:'a2',nome:'Santander',tipo:'corrente',saldo_inicial:3000}];S.importacoes=[{id:'i1',arquivo:'extrato-c6-outubro.ofx',destino:'C6 Bank PJ',qtd:42,criado_em:new Date().toISOString()}];S.saldoInicial=8000;
+  S.regras=[];S.lanc=[];S.contas=[{id:'a1',nome:'C6 Bank PJ',tipo:'corrente',saldo_inicial:5000},{id:'a2',nome:'Santander',tipo:'corrente',saldo_inicial:3000}];S.importacoes=[{id:'i1',arquivo:'extrato-c6-outubro.ofx',destino:'C6 Bank PJ',qtd:42,criado_em:new Date().toISOString()}];S.saldoInicial=8000;
   const L=(o)=>S.lanc.push({id:id(),finalidade:'',descricao:'',categoria:'Outros',...o});
   L({tipo:'entrada',descricao:'Vendas TB',valor:10900,data:m+'-05',categoria:'Vendas / TB'});
   L({tipo:'saida',descricao:'Mercado do bairro',valor:432.1,data:m+'-08',categoria:'Supermercado',finalidade:'compras do mês'});
@@ -226,8 +226,24 @@ function demo(){
   L({tipo:'saida',status:'pendente',descricao:'Condomínio Ed. Bela Vista',beneficiario:'Condomínio Ed. Bela Vista',valor:850,data:m+'-03',vencimento:m+'-03',categoria:'Condomínio',boleto_path:'x'});
   L({tipo:'saida',status:'pendente',descricao:'Consórcio Honda',beneficiario:'Consórcio Honda',valor:1420.5,data:m+'-08',vencimento:m+'-08',categoria:'Consórcio',boleto_path:'x'});
   L({tipo:'saida',status:'pago',descricao:'Pensão alimentícia',beneficiario:'Mãe do João',valor:1800,data:m+'-02',categoria:'Pensão alimentícia',finalidade:'pensão do mês',comprovante:'x'});
-  P('Notebook Dell',4799,10,4,'c1');P('Geladeira',3588,12,3,'c2');P('Sofá retrátil',2890,5,1,'c1');P('Passagens Recife',1740,6,1,'c3');
+  P('Notebook Dell',4799,10,4,'c1');P('Geladeira',3588,12,3,'c2');P('Sofá retrátil',2890,5,1,'c1');P('Passagens Recife',1740,6,1,'c3');aplicaRegras();
 }
+const BUILTIN=[[/pagamento (de )?fatura|pagto\.? fatura|pag\.? fatura|pgto fatura|fatura (do )?cart[aã]o/i,'fatura_cartao']];
+function aplicaRegras(){
+  const rs=(S.regras||[]).map(r=>({...r,k:String(r.padrao||'').toLowerCase()})).filter(r=>r.k.length>=3);
+  S.lanc.forEach(l=>{
+    l.nat=l.natureza||'normal';l.tag2=l.tag||'';l.auto2=!!l.automatico;l.cat2=l.categoria;
+    const txt=((l.descricao||'')+' '+(l.beneficiario||'')).toLowerCase();
+    if(l.nat==='normal'&&l.tipo!=='entrada'){for(const [re,n] of BUILTIN)if(re.test(txt)){l.nat=n;break}}
+    for(const r of rs){if(txt.includes(r.k)){
+      if(l.nat==='normal'&&r.natureza&&r.natureza!=='normal')l.nat=r.natureza;
+      if(!l.tag2&&r.tag)l.tag2=r.tag;
+      if(r.automatico)l.auto2=true;
+      if((!l.categoria||l.categoria==='Outros')&&r.categoria)l.cat2=r.categoria;
+      break}}
+  })}
+const NATNOME={fatura_cartao:'Fatura do cartão',transferencia:'Transferência',investimento:'Investimento'};
+const chips=l=>(l.nat&&l.nat!=='normal'?' <span class="tag">'+NATNOME[l.nat]+'</span>':'')+(l.auto2?' <span class="tag">Automático</span>':'')+(l.tag2?' <span class="tag">'+esc(l.tag2)+'</span>':'');
 const ofiFatura=(c,m)=>(S.faturasOf||[]).find(x=>x.cartao_id===c.id&&x.mes===m);
 function faturaCartao(c,m){const o=ofiFatura(c,m);if(o)return +o.valor;return S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===m).reduce((a,l)=>a+l.valor,0)}
 async function oficialFatura(id){const c=S.cartoes.find(x=>x.id===id),o=ofiFatura(c,ym);
@@ -241,8 +257,8 @@ function resumo(m){
   let ent=0,sai=0,cart=0,fat=0;const cat={};
   S.lanc.forEach(l=>{const lm=l.data.slice(0,7);
     if(l.tipo==='entrada'&&lm===m)ent+=l.valor;
-    if(l.tipo==='saida'&&lm===m&&l.status!=='pendente'){sai+=l.valor;cat[l.categoria]=(cat[l.categoria]||0)+l.valor}
-    if(l.tipo==='cartao'&&lm===m){cart+=l.valor;cat[l.categoria]=(cat[l.categoria]||0)+l.valor}
+    if(l.tipo==='saida'&&lm===m&&l.status!=='pendente'&&l.nat==='normal'){sai+=l.valor;cat[l.cat2||l.categoria]=(cat[l.cat2||l.categoria]||0)+l.valor}
+    if(l.tipo==='cartao'&&lm===m){cart+=l.valor;cat[l.cat2||l.categoria]=(cat[l.cat2||l.categoria]||0)+l.valor}
   });fat=S.cartoes.reduce((a,c)=>a+faturaCartao(c,m),0);
   return{ent,desp:sai+cart,fat,cat}
 }
@@ -350,13 +366,13 @@ function vProj(){
    <div class="card" style="margin-top:14px"><h3>Mês a mês</h3><div style="overflow:auto"><table><thead><tr><th>Mês</th><th class="n">Faturas</th><th class="n">Contas</th><th class="n">Comprometido</th></tr></thead><tbody>${pr.map(x=>`<tr><td class="cap">${nomeMes(x.m)}</td><td class="n">${BRL(x.p.total-x.p.contas)}</td><td class="n">${BRL(x.p.contas)}</td><td class="n"><b>${BRL(x.p.total)}</b></td></tr>`).join('')}</tbody></table></div></div>`;
 }
 function vLanc(){
-  $('view').innerHTML=`<div class="card"><div class="tools"><input id="q" placeholder="Buscar..." oninput="listaLanc()"><select id="ft" onchange="listaLanc()"><option value="">Todos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option><option value="cartao">Cartão</option></select></div>
+  $('view').innerHTML=`<div class="card"><div class="tools"><input id="q" placeholder="Buscar..." oninput="listaLanc()"><select id="ft" onchange="listaLanc()"><option value="">Todos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option><option value="cartao">Cartão</option><option value="fatura">Pagamento de fatura</option><option value="transf">Transferências</option><option value="auto">Débito automático</option></select></div>
   <div style="overflow:auto"><table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="n">Valor</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>`;listaLanc();
 }
 function listaLanc(){
   const q=($('q').value||'').toLowerCase(),t=$('ft').value;
-  const ls=S.lanc.filter(l=>l.data.startsWith(ym)&&(!t||l.tipo===t)&&(!q||(l.descricao+l.categoria+l.finalidade).toLowerCase().includes(q))).sort((a,b)=>b.data.localeCompare(a.data));
-  $('tb').innerHTML=ls.length?ls.map(l=>`<tr><td>${l.data.slice(8)}/${l.data.slice(5,7)}</td><td>${esc(l.descricao)}${l.parcela_total?` <span class="hint">${l.parcela_num}/${l.parcela_total}</span>`:''}${l.cartao_id&&cartao(l.cartao_id)?` <span class="hint">· ${esc(cartao(l.cartao_id).nome)}</span>`:''}${l.finalidade?`<div class="hint">${esc(l.finalidade)}</div>`:''}</td><td><span class="tag">${esc(l.categoria)}</span></td><td class="n ${l.tipo==='entrada'?'pos':'neg'}"><b>${l.tipo==='entrada'?'+':'−'} ${BRL(l.valor)}</b></td><td class="n">${l.comprovante?`<button class="sm" onclick="verComp('${esc(l.comprovante)}')">${I('clip')}</button> `:''}<button class="sm" onclick="abrirLanc('${l.id}')">editar</button></td></tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhum lançamento neste mês</td></tr>';
+  const ls=S.lanc.filter(l=>l.data.startsWith(ym)&&(!t||(t==='fatura'?l.nat==='fatura_cartao':t==='transf'?l.nat==='transferencia':t==='auto'?l.auto2:l.tipo===t))&&(!q||(l.descricao+l.categoria+l.finalidade).toLowerCase().includes(q))).sort((a,b)=>b.data.localeCompare(a.data));
+  $('tb').innerHTML=ls.length?ls.map(l=>`<tr><td>${l.data.slice(8)}/${l.data.slice(5,7)}</td><td>${esc(l.descricao)}${l.parcela_total?` <span class="hint">${l.parcela_num}/${l.parcela_total}</span>`:''}${l.cartao_id&&cartao(l.cartao_id)?` <span class="hint">· ${esc(cartao(l.cartao_id).nome)}</span>`:''}${l.finalidade?`<div class="hint">${esc(l.finalidade)}</div>`:''}${chips(l)}</td><td><span class="tag">${esc(l.cat2||l.categoria)}</span></td><td class="n ${l.tipo==='entrada'?'pos':'neg'}"><b>${l.tipo==='entrada'?'+':'−'} ${BRL(l.valor)}</b></td><td class="n">${l.comprovante?`<button class="sm" onclick="verComp('${esc(l.comprovante)}')">${I('clip')}</button> `:''}<button class="sm" onclick="abrirLanc('${l.id}')">editar</button></td></tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhum lançamento neste mês</td></tr>';
 }
 const MARCAS=[[/c6/i,['#161616','#3b3b3b']],[/santander/i,['#b5121b','#e8423a']],[/caixa/i,['#0a5ea8','#2a9be0']],[/renner|realize/i,['#c8102e','#ec4a60']],[/atacad|carrefour/i,['#e85d00','#ffa42e']],[/midway|riachuelo/i,['#0b3d91','#3a78e0']],[/nubank/i,['#6a0dad','#b05cf5']],[/ita[uú]/i,['#ec7000','#ffa24a']],[/inter/i,['#e85c0d','#ff8d45']],[/c&a/i,['#0a2a6c','#3563c4']],[/sam.?s/i,['#0b2a5b','#2f5fae']]];
 function fundoCartao(c){const m=MARCAS.find(x=>x[0].test(c.nome)),g=m?m[1]:['#263041','#4a5a78'];return 'linear-gradient(135deg,'+g[0]+','+g[1]+')'}
@@ -397,9 +413,13 @@ async function salvaCartao(id){
   if(ov===''){if(o)await sb.from('faturas_oficiais').delete().eq('id',o.id)}
   else{const n=num(ov);if(!isNaN(n))await sb.from('faturas_oficiais').upsert({cartao_id:id,mes:ym,valor:n},{onConflict:'cartao_id,mes'})}
   fechar();toast('Cartão atualizado');recarrega()}
+function debitosAuto(){
+  const g={};S.lanc.filter(l=>l.auto2&&l.tipo!=='entrada').forEach(l=>{const k=(l.beneficiario||l.descricao||'').trim();(g[k]=g[k]||[]).push(l)});
+  const ls=Object.entries(g).map(([k,a])=>{a.sort((x,y)=>y.data.localeCompare(x.data));return{k,u:a[0],n:a.length}});
+  return '<div class="card" style="margin-top:14px"><h3>Débitos automáticos <span class="hint">lançamentos marcados como automáticos</span></h3>'+(ls.length?ls.map(x=>'<div class="item"><div class="nm"><b>'+esc(x.k)+'</b><small>último em '+fmtData(x.u.data)+' · '+x.n+' lançamento(s)</small></div><b>'+BRL(x.u.valor)+'</b></div>').join(''):'<div class="empty">Marque "Pagamento automático" em um lançamento (ou crie uma regra) e ele aparece aqui.</div>')+'</div>'}
 function vFixas(){
   $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Despesas fixas <span class="tag">${BRL(S.fixas.reduce((a,f)=>a+f.valor,0))}/mês</span></h3>${S.fixas.map(f=>`<div class="item"><div class="nm"><b>${esc(f.descricao)}</b><small>dia ${f.dia} · ${esc(f.categoria)}</small></div><b>${BRL(f.valor)}</b>${fixaPaga(f,ym)?`<span class="pos" style="display:inline-flex;gap:4px;align-items:center">${I('check')} pago</span>`:`<button class="sm" onclick="pagarFixa('${f.id}')">Pagar</button>`}<button class="sm dan" onclick="delItem('fixas','${f.id}','conta fixa')">${I('x')}</button></div>`).join('')||'<div class="empty">Cadastre aluguel, internet, luz…</div>'}</div>
-  <div class="card"><h3>Nova despesa fixa</h3><label>Nome</label><input id="xn" placeholder="Ex.: Aluguel"><div class="two"><div><label>Valor</label><input id="xv" inputmode="decimal"></div><div><label>Dia do vencimento</label><input id="xd" type="number" min="1" max="31" value="5"></div></div><label>Categoria</label><select id="xc">${CAT_S.map(c=>`<option ${c==='Moradia'?'selected':''}>${c}</option>`).join('')}</select><button class="pri" style="margin-top:14px" onclick="addFixa()">Adicionar</button></div></div>`;
+  <div class="card"><h3>Nova despesa fixa</h3><label>Nome</label><input id="xn" placeholder="Ex.: Aluguel"><div class="two"><div><label>Valor</label><input id="xv" inputmode="decimal"></div><div><label>Dia do vencimento</label><input id="xd" type="number" min="1" max="31" value="5"></div></div><label>Categoria</label><select id="xc">${CAT_S.map(c=>`<option ${c==='Moradia'?'selected':''}>${c}</option>`).join('')}</select><button class="pri" style="margin-top:14px" onclick="addFixa()">Adicionar</button></div></div>${debitosAuto()}`;
 }
 
 // ---------- ações ----------
@@ -439,6 +459,9 @@ function abrirLanc(id,pre){
   <div id="wp" ${id?'class="hide"':''}><label>Parcelas</label><input id="fp" type="number" min="1" max="48" value="1"></div>
   <div id="wst"><div class="two"><div><label>Situação</label><select id="fst"><option value="pago" ${l.status!=='pendente'?'selected':''}>Já paguei</option><option value="pendente" ${l.status==='pendente'?'selected':''}>A pagar (boleto, conta)</option></select></div><div id="wvc"><label>Vencimento</label><input id="fvc" type="date" value="${l.vencimento||l.data||''}"></div></div>
   <label>Beneficiário (quem recebe)</label><input id="fben" value="${esc(l.beneficiario||'')}" placeholder="Ex.: Condomínio, consórcio, escola do João"></div>
+  <div class="two"><div><label>Tipo de movimento</label><select id="fnat"><option value="normal">Despesa normal</option><option value="fatura_cartao">Pagamento de fatura do cartão</option><option value="transferencia">Transferência (não é despesa)</option><option value="investimento">Investimento</option></select></div><div><label>Etiqueta</label><select id="ftag"><option value="">Nenhuma</option><option>Pessoal</option><option>Família</option><option>Negócio</option><option>Casa</option></select></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin:10px 0 0;color:var(--tx);font-size:14px"><input type="checkbox" id="fauto" style="width:auto"> Pagamento automático (débito em conta)</label>
+  <label style="display:flex;gap:8px;align-items:center;margin:6px 0 0;color:var(--tx);font-size:14px"><input type="checkbox" id="flembra" style="width:auto"> Lembrar para os parecidos (cria uma regra)</label>
   ${pend?`<div class="hint" style="margin-top:10px">Arquivo pronto para salvar: ${esc(pend.name)}</div>`:((l.comprovante||l.boleto_path)?`<div class="hint" style="margin-top:10px">Já tem arquivo guardado</div>`:'')}
   <div class="row" style="margin-top:18px;justify-content:space-between"><div>${id?`<button class="dan" onclick="apagarLanc('${id}')">Excluir</button>`:''}</div><div class="row"><button onclick="fechar()">Cancelar</button><button class="pri" onclick="gravarLanc('${id||''}')">Salvar</button></div></div>`);
   const pinta=()=>{document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===tipoSel));
@@ -447,6 +470,7 @@ function abrirLanc(id,pre){
     $('wst').style.display=tipoSel==='saida'?'block':'none';$('wvc').style.visibility=$('fst').value==='pendente'?'visible':'hidden'};
   $('fst').onchange=()=>{$('wvc').style.visibility=$('fst').value==='pendente'?'visible':'hidden'};
   document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{tipoSel=b.dataset.t;pinta()});pinta();
+  $('fnat').value=l.natureza||'normal';$('ftag').value=l.tag||'';$('fauto').checked=!!l.automatico;
   $('fd').addEventListener('blur',()=>{const c=adivinha($('fd').value);if(c&&tipoSel!=='entrada')$('fc').value=c});
 }
 async function gravarLanc(id){
@@ -455,7 +479,7 @@ async function gravarLanc(id){
   const pend2=tipoSel==='saida'&&$('fst').value==='pendente',venc=pend2?($('fvc').value||$('fdt').value||hojeStr()):null,data=pend2?venc:($('fdt').value||hojeStr());
   const campoArq=pend2?'boleto_path':'comprovante';
   const base={tipo:tipoSel,descricao:$('fd').value.trim()||'Sem descrição',finalidade:$('ffin').value.trim(),categoria:$('fc').value,cartao_id:tipoSel==='cartao'?($('fcart').value||null):null,conta_id:tipoSel!=='cartao'?($('fconta').value||null):null,
-    status:pend2?'pendente':'pago',vencimento:venc,beneficiario:tipoSel==='saida'?($('fben').value.trim()||null):null};
+    status:pend2?'pendente':'pago',vencimento:venc,beneficiario:tipoSel==='saida'?($('fben').value.trim()||null):null,natureza:$('fnat').value,tag:$('ftag').value||null,automatico:$('fauto').checked};
   let comp=null;
   if(pend){const path=S.uid+'/'+data.slice(0,7)+'/'+Date.now()+'_'+pend.name.replace(/[^\w.\-]+/g,'_');
     const up=await sb.storage.from('comprovantes').upload(path,pend.blob,{contentType:pend.mime});
@@ -468,6 +492,7 @@ async function gravarLanc(id){
     else rows.push({...base,valor:Math.round(v*100)/100,data,[campoArq]:comp});
     r=await sb.from('lancamentos').insert(rows)}
   if(r.error){toast('Erro: '+r.error.message);return}
+  if($('flembra')&&$('flembra').checked){const pad=(base.beneficiario||base.descricao||'').trim();if(pad.length>=3)await sb.from('regras').insert({padrao:pad,categoria:base.categoria,tag:base.tag,natureza:base.natureza,automatico:base.automatico})}
   pend=null;fechar();toast('Lançamento salvo');recarrega();
 }
 async function apagarLanc(id){const l=S.lanc.find(x=>x.id===id);let ids=[id];
@@ -563,7 +588,7 @@ function vDocs(){
 }
 function listaDocs(){const ls=docsFiltrados();
   $('dtot').textContent=ls.length+' documentos · total '+BRL(ls.reduce((a,l)=>a+l.valor,0));
-  $('dtb').innerHTML=ls.length?ls.map(l=>`<tr><td>${fmtData(l.data)}</td><td>${esc(l.beneficiario||l.descricao)}${l.finalidade?`<div class="hint">${esc(l.finalidade)}</div>`:''}${l.status==='pendente'?' <span class="tag">a pagar</span>':''}</td><td><span class="tag">${esc(l.categoria)}</span></td><td class="n"><b>${BRL(l.valor)}</b></td><td class="n">${l.comprovante?`<button class="sm" onclick="verComp('${esc(l.comprovante)}')">${I('clip')} comprovante</button> `:''}${l.boleto_path?`<button class="sm" onclick="verComp('${esc(l.boleto_path)}')">${I('file')} boleto</button>`:''}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhum documento neste filtro</td></tr>'}
+  $('dtb').innerHTML=ls.length?ls.map(l=>`<tr><td>${fmtData(l.data)}</td><td>${esc(l.beneficiario||l.descricao)}${l.finalidade?`<div class="hint">${esc(l.finalidade)}</div>`:''}${l.status==='pendente'?' <span class="tag">a pagar</span>':''}${chips(l)}</td><td><span class="tag">${esc(l.cat2||l.categoria)}</span></td><td class="n"><b>${BRL(l.valor)}</b></td><td class="n">${l.comprovante?`<button class="sm" onclick="verComp('${esc(l.comprovante)}')">${I('clip')} comprovante</button> `:''}${l.boleto_path?`<button class="sm" onclick="verComp('${esc(l.boleto_path)}')">${I('file')} boleto</button>`:''}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhum documento neste filtro</td></tr>'}
 function exportaDocs(){const ls=docsFiltrados();const csv=['Data;Descricao;Beneficiario;Categoria;Valor;Situacao;Finalidade'].concat(ls.map(l=>[l.data,l.descricao,l.beneficiario||'',l.categoria,String(l.valor).replace('.',','),l.status==='pendente'?'a pagar':'pago',l.finalidade||''].map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';'))).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}));a.download='documentos-financeiro.csv';a.click()}
 function finaisTxt(c){const g={};S.lanc.filter(l=>l.cartao_id===c.id&&l.cartao_final&&mesFatura(l)===ym).forEach(l=>g[l.cartao_final]=(g[l.cartao_final]||0)+l.valor);const e=Object.entries(g).sort((a,b)=>b[1]-a[1]);
