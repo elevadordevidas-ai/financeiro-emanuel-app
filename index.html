@@ -130,7 +130,7 @@ const CAT_S=['Supermercado','Alimentação','Combustível','Moradia','Contas fix
 const CAT_E=['Salário','Vendas / TB','Rendimentos','Outros'];
 const CORES=['#1fd6a8','#f97316','#7c5cff','#38bdf8','#e5484d','#eab308','#14b8a6','#ec4899'];
 const PALAVRAS={Supermercado:['mercado','supermerc','atacad','assai','carrefour','hortifruti','sacolao'],Alimentação:['restaurante','lanche','ifood','pizza','padaria','burger','cafe','acai'],Combustível:['posto','shell','ipiranga','gasolina','etanol'],Transporte:['uber','99','pedagio','estacion'],Saúde:['farmacia','drogaria','clinica','consulta'],Assinaturas:['netflix','spotify','youtube','prime','disney'],Moradia:['aluguel','condominio','iptu','energia','agua','internet']};
-let S={uid:null,email:'',cartoes:[],fixas:[],lanc:[],saldoInicial:0};
+let S={uid:null,email:'',cartoes:[],fixas:[],lanc:[],contas:[],importacoes:[],saldoInicial:0};
 let view='inicio',ym='',pend=null,tipoSel='saida';
 const $=id=>document.getElementById(id);
 const BRL=v=>(+v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -150,19 +150,23 @@ const cartao=id=>S.cartoes.find(c=>c.id===id);
 const corCartao=id=>{const i=S.cartoes.findIndex(c=>c.id===id);return CORES[(i<0?0:i)%CORES.length]};
 async function carregar(){
   if(DEMO){demo();return}
-  const [c,f,l,g]=await Promise.all([
+  const [c,f,l,g,ct,im]=await Promise.all([
     sb.from('cartoes').select('*').order('criado_em'),
     sb.from('fixas').select('*').order('dia'),
-    sb.from('lancamentos').select('*').order('data',{ascending:false}).limit(5000),
-    sb.from('config').select('*').maybeSingle()]);
-  const e=c.error||f.error||l.error||g.error;if(e){toast('Erro ao carregar: '+e.message);return}
-  S.cartoes=c.data;S.fixas=f.data;S.lanc=l.data.map(x=>({...x,valor:+x.valor}));S.saldoInicial=+(g.data?.saldo_inicial||0);
+    todos(()=>sb.from('lancamentos').select('*').order('data',{ascending:false}).order('id')),
+    sb.from('config').select('*').maybeSingle(),
+    sb.from('contas').select('*').order('criado_em'),
+    sb.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(30)]);
+  const e=c.error||f.error||l.error||g.error||ct.error||im.error;if(e){toast('Erro ao carregar: '+e.message);return}
+  S.cartoes=c.data;S.fixas=f.data;S.lanc=l.data.map(x=>({...x,valor:+x.valor}));S.contas=ct.data;S.importacoes=im.data;
+  S.saldoInicial=+(g.data?.saldo_inicial||0)+S.contas.reduce((a,x)=>a+ +x.saldo_inicial,0);
 }
+async function todos(q){let out=[],from=0;for(;;){const r=await q().range(from,from+999);if(r.error)return r;out=out.concat(r.data);if(r.data.length<1000)break;from+=1000}return{data:out,error:null}}
 function demo(){
   const h=hojeStr(),m=h.slice(0,7);let k=0;const id=()=> 'd'+(++k);
   S.cartoes=[{id:'c1',nome:'Nubank Ultravioleta',fechamento:25,vencimento:2,limite:12000},{id:'c2',nome:'Itaú Click',fechamento:20,vencimento:27,limite:6000},{id:'c3',nome:'Inter Black',fechamento:28,vencimento:5,limite:8000}];
   S.fixas=[{id:'f1',descricao:'Aluguel',valor:2200,dia:5,categoria:'Moradia'},{id:'f2',descricao:'Internet',valor:119.9,dia:12,categoria:'Moradia'},{id:'f3',descricao:'Energia',valor:310,dia:+h.slice(8,10)+3>28?28:+h.slice(8,10)+3,categoria:'Moradia'}];
-  S.lanc=[];S.saldoInicial=8000;
+  S.lanc=[];S.contas=[{id:'a1',nome:'C6 Bank PJ',tipo:'corrente',saldo_inicial:5000},{id:'a2',nome:'Santander',tipo:'corrente',saldo_inicial:3000}];S.importacoes=[{id:'i1',arquivo:'extrato-c6-outubro.ofx',destino:'C6 Bank PJ',qtd:42,criado_em:new Date().toISOString()}];S.saldoInicial=8000;
   const L=(o)=>S.lanc.push({id:id(),finalidade:'',descricao:'',categoria:'Outros',...o});
   L({tipo:'entrada',descricao:'Vendas TB',valor:10900,data:m+'-05',categoria:'Vendas / TB'});
   L({tipo:'saida',descricao:'Mercado do bairro',valor:432.1,data:m+'-08',categoria:'Supermercado',finalidade:'compras do mês'});
@@ -209,14 +213,14 @@ function agenda(){
 }
 
 // ---------- telas ----------
-const NAV=[['inicio','🏠','Início'],['lanc','🧾','Lançamentos'],['proj','📈','Projeção'],['cartoes','💳','Cartões'],['fixas','🔁','Fixas']];
+const NAV=[['inicio','🏠','Início'],['lanc','🧾','Lançamentos'],['proj','📈','Projeção'],['contas','🏦','Contas'],['cartoes','💳','Cartões'],['fixas','🔁','Fixas'],['import','⬆️','Importar']];
 function render(){
   $('nav').innerHTML=NAV.map(([k,i,t])=>`<a class="${k===view?'on':''}" onclick="ir('${k}')"><span>${i}</span>${t}</a>`).join('');
   $('mesTxt').textContent=nomeMes(ym);
   const nome=(S.email||'').split('@')[0];
   $('tit').textContent=view==='inicio'?'Olá, '+(nome||'Emanuel'):NAV.find(n=>n[0]===view)[2];
-  $('sub').textContent='Aqui está o resumo das suas finanças · '+nomeMes(ym);
-  ({inicio:vInicio,lanc:vLanc,proj:vProj,cartoes:vCartoes,fixas:vFixas})[view]();
+  $('sub').textContent=view==='inicio'?'Aqui está o resumo das suas finanças · '+nomeMes(ym):'';
+  ({inicio:vInicio,lanc:vLanc,proj:vProj,contas:vContas,cartoes:vCartoes,fixas:vFixas,import:vImport})[view]();
 }
 const ir=v=>{view=v;render();window.scrollTo(0,0)};
 const mudaMes=n=>{ym=addMes(ym,n);render()};
@@ -301,13 +305,13 @@ function abrirLanc(id,pre){
   <label>Descrição</label><input id="fd" value="${esc(l.descricao)}" placeholder="Ex.: Padaria">
   <label>Finalidade (para que foi)</label><input id="ffin" value="${esc(l.finalidade||'')}" placeholder="Ex.: café da manhã">
   <div class="two"><div><label>Valor (R$)</label><input id="fv" inputmode="decimal" value="${l.valor}"></div><div><label>Data</label><input id="fdt" type="date" value="${l.data}"></div></div>
-  <div class="two"><div><label>Categoria</label><select id="fc"></select></div><div id="wc"><label>Cartão</label><select id="fcart">${S.cartoes.map(c=>`<option value="${c.id}" ${c.id===l.cartao_id?'selected':''}>${esc(c.nome)}</option>`).join('')||'<option value="">(cadastre um cartão)</option>'}</select></div></div>
+  <div class="two"><div><label>Categoria</label><select id="fc"></select></div><div id="wc"><label id="wlab">Cartão</label><select id="fcart">${S.cartoes.map(c=>`<option value="${c.id}" ${c.id===l.cartao_id?'selected':''}>${esc(c.nome)}</option>`).join('')||'<option value="">(cadastre um cartão)</option>'}</select><select id="fconta" style="display:none"><option value="">(sem conta)</option>${S.contas.map(c=>`<option value="${c.id}" ${c.id===l.conta_id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select></div></div>
   <div id="wp" ${id?'class="hide"':''}><label>Parcelas</label><input id="fp" type="number" min="1" max="48" value="1"></div>
   ${pend?`<div class="hint" style="margin-top:10px">📎 Comprovante pronto para salvar: ${esc(pend.name)}</div>`:(l.comprovante?`<div class="hint" style="margin-top:10px">📎 Já tem comprovante</div>`:'')}
   <div class="row" style="margin-top:18px;justify-content:space-between"><div>${id?`<button class="dan" onclick="apagarLanc('${id}')">Excluir</button>`:''}</div><div class="row"><button onclick="fechar()">Cancelar</button><button class="pri" onclick="gravarLanc('${id||''}')">Salvar</button></div></div>`);
   const pinta=()=>{document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===tipoSel));
     $('fc').innerHTML=(tipoSel==='entrada'?CAT_E:CAT_S).map(c=>`<option ${c===l.categoria?'selected':''}>${c}</option>`).join('');
-    $('wc').style.visibility=tipoSel==='cartao'?'visible':'hidden';$('wp').style.display=(tipoSel==='cartao'&&!id)?'block':'none'};
+    const car=tipoSel==='cartao';$('fcart').style.display=car?'':'none';$('fconta').style.display=car?'none':'';$('wlab').textContent=car?'Cartão':'Conta';$('wp').style.display=(tipoSel==='cartao'&&!id)?'block':'none'};
   document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{tipoSel=b.dataset.t;pinta()});pinta();
   $('fd').addEventListener('blur',()=>{const c=adivinha($('fd').value);if(c&&tipoSel!=='entrada')$('fc').value=c});
 }
@@ -315,7 +319,7 @@ async function gravarLanc(id){
   const v=num($('fv').value);if(!(v>0)){toast('Informe um valor maior que zero');return}
   if(DEMO){toast('Modo demonstração: nada é gravado');return}
   const data=$('fdt').value||hojeStr();
-  const base={tipo:tipoSel,descricao:$('fd').value.trim()||'Sem descrição',finalidade:$('ffin').value.trim(),categoria:$('fc').value,cartao_id:tipoSel==='cartao'?($('fcart').value||null):null};
+  const base={tipo:tipoSel,descricao:$('fd').value.trim()||'Sem descrição',finalidade:$('ffin').value.trim(),categoria:$('fc').value,cartao_id:tipoSel==='cartao'?($('fcart').value||null):null,conta_id:tipoSel!=='cartao'?($('fconta').value||null):null};
   let comp=null;
   if(pend){const path=S.uid+'/'+data.slice(0,7)+'/'+Date.now()+'_'+pend.name.replace(/[^\w.\-]+/g,'_');
     const up=await sb.storage.from('comprovantes').upload(path,pend.blob,{contentType:pend.mime});
@@ -357,6 +361,87 @@ async function processaArquivo(file){
 }
 document.addEventListener('paste',e=>{const f=[...(e.clipboardData?.files||[])][0];if(f&&!$('modal').classList.contains('on')&&!$('app').classList.contains('hide'))processaArquivo(f)});
 
+// ---------- contas ----------
+function saldoConta(c){let t=+c.saldo_inicial;S.lanc.forEach(l=>{if(l.conta_id===c.id)t+=l.tipo==='entrada'?l.valor:(l.tipo==='saida'?-l.valor:0)});return t}
+function vContas(){
+  const tot=S.contas.reduce((a,c)=>a+saldoConta(c),0);
+  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Suas contas <span class="tag">${BRL(tot)}</span></h3>${S.contas.map(c=>`<div class="item"><div class="ico" style="background:var(--navy)">🏦</div><div class="nm"><b>${esc(c.nome)}</b><small>saldo inicial ${BRL(c.saldo_inicial)}</small></div><b class="${saldoConta(c)<0?'neg':''}">${BRL(saldoConta(c))}</b><button class="sm dan" onclick="delItem('contas','${c.id}','conta')">✕</button></div>`).join('')||'<div class="empty">Cadastre a conta do banco (ex.: C6 Bank PJ)</div>'}</div>
+  <div class="card"><h3>Nova conta</h3><label>Nome</label><input id="an" placeholder="Ex.: C6 Bank PJ"><label>Saldo inicial (hoje, antes de importar)</label><input id="as" inputmode="decimal" placeholder="0,00"><div class="hint" style="margin-top:8px">O saldo da conta = saldo inicial + entradas − saídas lançadas nela. Ao importar o extrato, use o saldo de antes do primeiro lançamento do arquivo.</div><button class="pri" style="margin-top:14px" onclick="addConta()">Adicionar conta</button></div></div>`;
+}
+async function addConta(){const n=$('an').value.trim();if(!n){toast('Dê um nome à conta');return}
+  if(await db(sb?.from('contas').insert({nome:n,saldo_inicial:num($('as').value)||0})))recarrega()}
+
+// ---------- importar extrato / fatura ----------
+let imp={dest:'',destNome:'',arquivo:'',rows:[]};
+function vImport(){
+  const ops=(S.contas.length?`<optgroup label="Conta bancária">${S.contas.map(c=>`<option value="c:${c.id}">${esc(c.nome)}</option>`).join('')}</optgroup>`:'')+(S.cartoes.length?`<optgroup label="Cartão de crédito (fatura)">${S.cartoes.map(c=>`<option value="k:${c.id}">${esc(c.nome)}</option>`).join('')}</optgroup>`:'');
+  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Importar extrato ou fatura</h3>
+  <p class="hint">Baixe o arquivo <b>OFX</b> (melhor) ou <b>CSV</b> no app ou site do banco. Nada é gravado antes da sua revisão, e dá para desfazer.</p>
+  ${ops?`<label>Os lançamentos são de:</label><select id="idest">${ops}</select><label>Arquivo</label><input type="file" id="ifile" accept=".ofx,.csv,.txt"><button class="pri" style="margin-top:14px" onclick="leImport()">Ler arquivo</button>`:'<div class="empty">Cadastre antes uma <a class="hint" style="cursor:pointer;text-decoration:underline" onclick="ir(\'contas\')">conta</a> ou um <a class="hint" style="cursor:pointer;text-decoration:underline" onclick="ir(\'cartoes\')">cartão</a>.</div>'}</div>
+  <div class="card"><h3>Importações recentes</h3>${S.importacoes.map(i=>`<div class="item"><div class="nm"><b>${esc(i.arquivo)}</b><small>${esc(i.destino)} · ${i.qtd} lançamentos · ${new Date(i.criado_em).toLocaleDateString('pt-BR')}</small></div><button class="sm dan" onclick="desfazImport('${i.id}')">Desfazer</button></div>`).join('')||'<div class="empty">Nenhuma importação ainda</div>'}</div></div><div id="irev"></div>`;
+  if(imp.rows.length)mostraRevisao();
+}
+async function lerTexto(file){const buf=await file.arrayBuffer();let t=new TextDecoder('utf-8').decode(buf);if(t.includes('�'))t=new TextDecoder('windows-1252').decode(buf);return t}
+function parseOFX(t){
+  const out=[];(t.match(/<STMTTRN>[\s\S]*?(?=<\/STMTTRN>|<STMTTRN>|<\/BANKTRANLIST>|$)/gi)||[]).forEach(b=>{
+    const g=k=>(b.match(new RegExp('<'+k+'>\\s*([^<\\r\\n]+)','i'))||[])[1];
+    const d=(g('DTPOSTED')||'').trim(),v=parseFloat((g('TRNAMT')||'').replace(',','.'));
+    if(d.length>=8&&!isNaN(v))out.push({data:d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8),desc:(g('MEMO')||g('NAME')||'').trim(),v,fitid:(g('FITID')||'').trim()||null})});
+  return out}
+function parseCSV(t){
+  const linhas=t.split(/\r?\n/).filter(x=>x.trim());if(!linhas.length)return[];
+  const sep=[';','\t',','].sort((a,b)=>linhas[0].split(b).length-linhas[0].split(a).length)[0];
+  const cel=L=>{const r=[];let c='',q=false;for(const ch of L){if(ch==='"')q=!q;else if(ch===sep&&!q){r.push(c);c=''}else c+=ch}r.push(c);return r.map(x=>x.trim())};
+  const rows=linhas.map(cel),norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const dataFmt=x=>{let m;if(m=x.match(/^(\d{2})\/(\d{2})\/(\d{4})/))return m[3]+'-'+m[2]+'-'+m[1];if(m=x.match(/^(\d{2})\/(\d{2})\/(\d{2})$/))return '20'+m[3]+'-'+m[2]+'-'+m[1];if(m=x.match(/^(\d{4})-(\d{2})-(\d{2})/))return m[0].slice(0,10);return null};
+  const hIdx=rows.findIndex(r=>r.some(x=>/^(data|date)/.test(norm(x)))&&r.some(x=>/(valor|amount|entrada|saida|quantia)/.test(norm(x))));
+  const out=[];
+  if(hIdx>=0){
+    const h=rows[hIdx].map(norm),iD=h.findIndex(x=>/^(data|date)/.test(x)),iV=h.findIndex(x=>/(valor|amount|quantia)/.test(x)),iE=h.findIndex(x=>/^entrada/.test(x)),iS=h.findIndex(x=>/^saida/.test(x));
+    const iDe=h.map((x,i)=>/(descri|title|titulo|historico|lancamento|memo|estabelec|detalhe)/.test(x)&&i!==iD?i:-1).filter(i=>i>=0);
+    rows.slice(hIdx+1).forEach(c=>{const data=dataFmt(c[iD]||'');let v;
+      if(iV>=0)v=num(c[iV]);else if(iE>=0&&iS>=0)v=(num(c[iE])||0)-(num(c[iS])||0);
+      const desc=[...new Set(iDe.map(i=>c[i]).filter(Boolean))].join(' · ');
+      if(data&&typeof v==='number'&&!isNaN(v)&&v!==0)out.push({data,desc,v,fitid:null})});
+  }else rows.forEach(c=>{let data,v,desc='';c.forEach(x=>{const d=dataFmt(x);if(!data&&d)data=d;else if(v===undefined&&/^-?[R$\s]*-?\d[\d.]*(,\d{1,2})?$|^-?\d+\.\d{1,2}$/.test(x))v=num(x);else if(x.length>desc.length)desc=x});if(data&&typeof v==='number'&&!isNaN(v))out.push({data,desc,v,fitid:null})});
+  return out}
+function montaRevisao(itens,tipoDest,destId){
+  let sinal=-1;if(tipoDest==='k'){const pos=itens.filter(i=>i.v>0).length,neg=itens.filter(i=>i.v<0).length;sinal=pos>neg?1:-1}
+  return itens.map(i=>{let tipo,ok=true,aviso='',skip=false;
+    if(tipoDest==='k'){if(Math.sign(i.v)===sinal)tipo='cartao';else{tipo='cartao';ok=false;skip=true;aviso='pagamento ou estorno'}}
+    else tipo=i.v<0?'saida':'entrada';
+    const dup=S.lanc.some(l=>(i.fitid&&l.fitid===i.fitid)||(l.data===i.data&&Math.abs(l.valor-Math.abs(i.v))<.005&&l.descricao===(i.desc||'Importado')&&(tipoDest==='k'?l.cartao_id===destId:l.conta_id===destId)));
+    if(dup){ok=false;aviso='já importado'}
+    return{...i,tipo,ok,skip,aviso,cat:adivinha(i.desc)||'Outros'}})}
+async function leImport(){
+  const f=$('ifile').files[0];if(!f){toast('Escolha o arquivo do banco');return}
+  try{const t=await lerTexto(f),itens=/<STMTTRN>/i.test(t)?parseOFX(t):parseCSV(t);
+    if(!itens.length){toast('Não consegui ler lançamentos desse arquivo. Tente o formato OFX.');return}
+    const d=$('idest').value;imp={dest:d,destNome:$('idest').selectedOptions[0].text,arquivo:f.name,rows:montaRevisao(itens,d[0],d.slice(2))};mostraRevisao();
+  }catch(e){toast('Erro ao ler: '+e.message)}
+}
+function mostraRevisao(){
+  const r=imp.rows,n=r.filter(x=>x.ok).length,tot=r.filter(x=>x.ok).reduce((a,x)=>a+(x.tipo==='entrada'?x.v:-Math.abs(x.v)),0);
+  $('irev').innerHTML=`<div class="card" style="margin-top:14px"><h3>Revisar: ${esc(imp.arquivo)} <span class="tag">${r.length} linhas · ${n} novas</span></h3>
+  <div class="hint" style="margin-bottom:8px">Destino: <b>${esc(imp.destNome)}</b>. Linhas "já importado" e pagamentos de fatura vêm desmarcadas. Ajuste a categoria se quiser.</div>
+  <div style="overflow:auto;max-height:55vh"><table><thead><tr><th></th><th>Data</th><th>Descrição</th><th>Categoria</th><th class="n">Valor</th></tr></thead><tbody>${r.map((x,i)=>`<tr style="${x.ok?'':'opacity:.55'}"><td><input type="checkbox" style="width:auto" ${x.ok?'checked':''} ${x.skip?'disabled':''} onchange="imp.rows[${i}].ok=this.checked;mostraRevisaoTotal()"></td><td>${x.data.slice(8)}/${x.data.slice(5,7)}/${x.data.slice(2,4)}</td><td>${esc(x.desc||'(sem descrição)')}${x.aviso?`<div class="hint">${x.aviso}</div>`:''}</td><td><select style="padding:6px" onchange="imp.rows[${i}].cat=this.value">${(x.tipo==='entrada'?CAT_E:CAT_S).map(c=>`<option ${c===x.cat?'selected':''}>${c}</option>`).join('')}</select></td><td class="n ${x.tipo==='entrada'?'pos':'neg'}"><b>${x.tipo==='entrada'?'+':'−'} ${BRL(Math.abs(x.v))}</b></td></tr>`).join('')}</tbody></table></div>
+  <div class="row" style="margin-top:14px;justify-content:space-between"><span id="irtot" class="hint">${n} selecionadas · resultado ${BRL(tot)}</span><div class="row"><button onclick="imp={dest:'',destNome:'',arquivo:'',rows:[]};vImport()">Cancelar</button><button class="pri" onclick="confirmaImport()">Importar selecionadas</button></div></div></div>`;
+}
+function mostraRevisaoTotal(){const s=imp.rows.filter(x=>x.ok);$('irtot').textContent=s.length+' selecionadas · resultado '+BRL(s.reduce((a,x)=>a+(x.tipo==='entrada'?x.v:-Math.abs(x.v)),0))}
+async function confirmaImport(){
+  const sel=imp.rows.filter(r=>r.ok);if(!sel.length){toast('Nada selecionado');return}
+  if(DEMO){toast('Modo demonstração: nada é gravado');return}
+  const t=imp.dest[0],id=imp.dest.slice(2);
+  const r1=await sb.from('importacoes').insert({arquivo:imp.arquivo,destino:imp.destNome,qtd:sel.length}).select().single();
+  if(r1.error){toast('Erro: '+r1.error.message);return}
+  const rows=sel.map(r=>({tipo:r.tipo,descricao:r.desc||'Importado',valor:Math.round(Math.abs(r.v)*100)/100,data:r.data,categoria:r.cat,conta_id:t==='c'?id:null,cartao_id:t==='k'?id:null,importacao_id:r1.data.id,fitid:r.fitid}));
+  for(let i=0;i<rows.length;i+=300){const r=await sb.from('lancamentos').insert(rows.slice(i,i+300));
+    if(r.error){toast('Erro: '+r.error.message+' — nada foi mantido');await sb.from('importacoes').delete().eq('id',r1.data.id);return}}
+  toast(sel.length+' lançamentos importados');imp={dest:'',destNome:'',arquivo:'',rows:[]};await recarrega();
+}
+async function desfazImport(id){if(!confirm('Desfazer esta importação? Os lançamentos que vieram dela serão apagados.'))return;
+  if(await db(sb?.from('importacoes').delete().eq('id',id))){toast('Importação desfeita');recarrega()}}
+
 // ---------- entrada ----------
 function mostraApp(){$('login').classList.add('hide');$('app').classList.remove('hide');$('fab').classList.remove('hide');$('btnSair').classList.toggle('hide',false)}
 function mostraLogin(){$('app').classList.add('hide');$('fab').classList.add('hide');$('login').classList.remove('hide')}
@@ -368,7 +453,7 @@ async function iniciar(s){S.uid=s.user.id;S.email=s.user.email;mostraApp();await
   ym=mesAtual();
   if(DEMO){$('demoBar').classList.remove('hide');S.uid='demo';S.email='emanuel@demo';mostraApp();await carregar();render();return}
   const {data:{session}}=await sb.auth.getSession();
-  sb.auth.onAuthStateChange((ev,s)=>{if(ev==='SIGNED_IN'&&s&&S.uid!==s.user.id)iniciar(s);if(ev==='SIGNED_OUT'){S={uid:null,email:'',cartoes:[],fixas:[],lanc:[],saldoInicial:0};mostraLogin()}});
+  sb.auth.onAuthStateChange((ev,s)=>{if(ev==='SIGNED_IN'&&s&&S.uid!==s.user.id)iniciar(s);if(ev==='SIGNED_OUT'){S={uid:null,email:'',cartoes:[],fixas:[],lanc:[],contas:[],importacoes:[],saldoInicial:0};mostraLogin()}});
   if(session)iniciar(session);else mostraLogin();
 })();
 </script>
