@@ -367,9 +367,13 @@ document.addEventListener('paste',e=>{const f=[...(e.clipboardData?.files||[])][
 function saldoConta(c){let t=+c.saldo_inicial;S.lanc.forEach(l=>{if(l.conta_id===c.id)t+=l.tipo==='entrada'?l.valor:(l.tipo==='saida'?-l.valor:0)});return t}
 function vContas(){
   const tot=S.contas.reduce((a,c)=>a+saldoConta(c),0);
-  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Suas contas <span class="tag">${BRL(tot)}</span></h3>${S.contas.map(c=>`<div class="item"><div class="ico" style="background:var(--navy)">🏦</div><div class="nm"><b>${esc(c.nome)}</b><small>saldo inicial ${BRL(c.saldo_inicial)}</small></div><b class="${saldoConta(c)<0?'neg':''}">${BRL(saldoConta(c))}</b><button class="sm dan" onclick="delItem('contas','${c.id}','conta')">✕</button></div>`).join('')||'<div class="empty">Cadastre a conta do banco (ex.: C6 Bank PJ)</div>'}</div>
+  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Suas contas <span class="tag">${BRL(tot)}</span></h3>${S.contas.map(c=>`<div class="item"><div class="ico" style="background:var(--navy)">🏦</div><div class="nm"><b>${esc(c.nome)}</b><small>saldo inicial ${BRL(c.saldo_inicial)}</small></div><b class="${saldoConta(c)<0?'neg':''}">${BRL(saldoConta(c))}</b><button class="sm" onclick="ajustaSaldo('${c.id}')">Ajustar saldo</button><button class="sm dan" onclick="delItem('contas','${c.id}','conta')">✕</button></div>`).join('')||'<div class="empty">Cadastre a conta do banco (ex.: C6 Bank PJ)</div>'}</div>
   <div class="card"><h3>Nova conta</h3><label>Nome</label><input id="an" placeholder="Ex.: C6 Bank PJ"><label>Saldo inicial (hoje, antes de importar)</label><input id="as" inputmode="decimal" placeholder="0,00"><div class="hint" style="margin-top:8px">O saldo da conta = saldo inicial + entradas − saídas lançadas nela. Ao importar o extrato, use o saldo de antes do primeiro lançamento do arquivo.</div><button class="pri" style="margin-top:14px" onclick="addConta()">Adicionar conta</button></div></div>`;
 }
+async function ajustaSaldo(id){
+  const c=S.contas.find(x=>x.id===id),v=prompt('Qual é o saldo desta conta HOJE no banco? (R$)\nO painel ajusta o saldo inicial para bater.');if(v===null)return;
+  const atual=num(v);if(isNaN(atual))return;const mov=saldoConta(c)-(+c.saldo_inicial);
+  if(await db(sb?.from('contas').update({saldo_inicial:Math.round((atual-mov)*100)/100}).eq('id',id))){toast('Saldo ajustado');recarrega()}}
 async function addConta(){const n=$('an').value.trim();if(!n){toast('Dê um nome à conta');return}
   if(await db(sb?.from('contas').insert({nome:n,saldo_inicial:num($('as').value)||0})))recarrega()}
 
