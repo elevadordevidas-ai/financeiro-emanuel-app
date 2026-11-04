@@ -100,6 +100,15 @@ td{padding:10px 6px;border-bottom:1px solid var(--line);font-size:14px}tr:last-c
 .ct .art:after{content:"";position:absolute;right:-40px;top:-40px;width:150px;height:150px;border-radius:50%;background:#ffffff14}
 .ct .arttop{display:flex;justify-content:space-between;align-items:center;font-size:15px;position:relative;z-index:1}
 .ct .artfin{font-size:19px;letter-spacing:.14em;font-weight:600;position:relative;z-index:1;text-shadow:0 1px 6px #0006}
+.mnu{display:none}
+#sheet{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;z-index:50}#sheet.on{display:flex}
+.shbox{background:var(--panel);border:1px solid var(--line);border-radius:18px 18px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom));width:100%;max-height:80vh;overflow:auto}
+.shgrip{width:38px;height:4px;border-radius:9px;background:var(--line);margin:4px auto 14px}
+.shgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.shgrid a{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 6px;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--tx);cursor:pointer}
+.shgrid a.on{background:var(--acd);color:var(--ac);border-color:transparent}
+.shgrid .ic{width:22px;height:22px}
+@media(max-width:860px){.mnu{display:flex}nav a:nth-child(n+5):not(.mnu){display:none}}
 </style>
 </head>
 <body>
@@ -137,12 +146,13 @@ td{padding:10px 6px;border-bottom:1px solid var(--line);font-size:14px}tr:last-c
 </div>
 <button class="fab hide" id="fab" onclick="$('arq').click()"><span data-i="clip"></span> Comprovante</button>
 <input type="file" id="arq" accept="image/*,.pdf" multiple class="hide" onchange="processaArquivos(this.files);this.value=''">
+<div id="sheet"></div>
 <div class="modal" id="modal"><div class="box" id="box"></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
 try{document.documentElement.dataset.theme=localStorage.getItem('tema')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}
-const P={home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',receipt:'<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/>',file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',trend:'<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',bank:'<path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/>',card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',repeat:'<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',folder:'<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',upload:'<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',clip:'<path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/>',plus:'<path d="M12 5v14M5 12h14"/>',refresh:'<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',radar:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/><path d="M12 12L19 5"/>',alert:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1"/>',up:'<path d="M12 19V5M5 12l7-7 7 7"/>',down:'<path d="M12 5v14M19 12l-7 7-7-7"/>',check:'<path d="M5 12.5l4.5 4.5L19 7"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>'};
+const P={home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',receipt:'<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/>',file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',trend:'<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',bank:'<path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/>',card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',repeat:'<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',folder:'<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',upload:'<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',clip:'<path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/>',plus:'<path d="M12 5v14M5 12h14"/>',refresh:'<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',radar:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/><path d="M12 12L19 5"/>',alert:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1"/>',up:'<path d="M12 19V5M5 12l7-7 7 7"/>',down:'<path d="M12 5v14M19 12l-7 7-7-7"/>',check:'<path d="M5 12.5l4.5 4.5L19 7"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',menu:'<path d="M4 7h16M4 12h16M4 17h16"/>'};
 const I=n=>'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>';
 function pintaIcones(){document.querySelectorAll('[data-i]').forEach(e=>e.innerHTML=I(e.dataset.i));const b=document.getElementById('btnTema');if(b)b.innerHTML=I(document.documentElement.dataset.theme==='light'?'moon':'sun')}
 function trocaTema(){const n=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=n;try{localStorage.setItem('tema',n)}catch(e){}pintaIcones()}
@@ -264,9 +274,9 @@ function agenda(){
 }
 
 // ---------- telas ----------
-const NAV=[['inicio','home','Início'],['lanc','receipt','Lançamentos'],['pagar','file','A pagar'],['proj','trend','Projeção'],['contas','bank','Contas'],['cartoes','card','Cartões'],['fixas','repeat','Fixas'],['docs','folder','Documentos'],['import','upload','Importar']];
+const NAV=[['inicio','home','Início'],['pagar','file','A pagar'],['lanc','receipt','Lançamentos'],['cartoes','card','Cartões'],['contas','bank','Contas'],['proj','trend','Projeção'],['fixas','repeat','Fixas'],['docs','folder','Documentos'],['import','upload','Importar']];
 function render(){
-  $('nav').innerHTML=NAV.map(([k,i,t])=>`<a class="${k===view?'on':''}" onclick="ir('${k}')">${I(i)}<span>${t}</span></a>`).join('');
+  $('nav').innerHTML=NAV.map(([k,i,t])=>`<a class="${k===view?'on':''}" onclick="ir('${k}')">${I(i)}<span>${t}</span></a>`).join('')+`<a class="mnu" onclick="abreMenu()">${I('menu')}<span>Menu</span></a>`;
   $('mesTxt').textContent=nomeMes(ym);
   const nome=(S.email||'').split('@')[0];
   $('tit').textContent=view==='inicio'?'Olá, '+(localStorage.getItem('nome')||'Emanuel'):NAV.find(n=>n[0]===view)[2];
@@ -726,6 +736,12 @@ async function confirmaPdf(){
     toast('Fatura guardada: '+rows.length+' lançamentos e valor oficial '+BRL(F.total));pdfImp=null;await recarrega();
   }catch(e){toast('Erro: '+e.message)}
 }
+
+function abreMenu(){
+  const s=$('sheet');s.innerHTML='<div class="shbox"><div class="shgrip"></div><div class="shgrid">'+NAV.map(([k,i,t])=>'<a class="'+(k===view?'on':'')+'" onclick="fechaMenu();ir(\''+k+'\')">'+I(i)+'<span>'+t+'</span></a>').join('')+'</div><div class="row" style="margin-top:14px;justify-content:space-between"><button onclick="trocaTema()">Tema claro ou escuro</button><button class="dan" onclick="fechaMenu();sair()">Sair</button></div></div>';
+  s.classList.add('on')}
+function fechaMenu(){$('sheet').classList.remove('on')}
+document.addEventListener('click',e=>{if(e.target.id==='sheet')fechaMenu()});
 
 // ---------- entrada ----------
 function mostraApp(){$('login').classList.add('hide');$('app').classList.remove('hide');$('fab').classList.remove('hide');$('btnSair').classList.toggle('hide',false)}
