@@ -160,7 +160,24 @@ async function carregar(){
   const e=c.error||f.error||l.error||g.error||ct.error||im.error;if(e){toast('Erro ao carregar: '+e.message);return}
   S.cartoes=c.data;S.fixas=f.data;S.lanc=l.data.map(x=>({...x,valor:+x.valor}));S.contas=ct.data;S.importacoes=im.data;
   S.saldoInicial=+(g.data?.saldo_inicial||0)+S.contas.reduce((a,x)=>a+ +x.saldo_inicial,0);
+  S.ultimaSync=g.data?.ultima_sync||null;
 }
+let sincronizando=false;
+async function sincronizar(silencioso){
+  if(DEMO){toast('Modo demonstração: sem sincronização');return}
+  if(sincronizando)return;sincronizando=true;
+  if(!silencioso)toast('Sincronizando com os bancos… pode levar até 1 minuto');
+  try{
+    const {data,error}=await sb.functions.invoke('sincronizar-bancos',{body:{}});
+    let msg=data&&data.erro;
+    if(error&&!msg){try{msg=(await error.context.json()).erro}catch(_e){msg=error.message}}
+    if(msg){toast('Sincronização: '+msg);return}
+    const av=data.avisos||[];
+    toast('Sincronizado: '+data.novos+' lançamentos novos'+((data.contas||data.cartoes)?' · '+data.contas+' contas e '+data.cartoes+' cartões encontrados':'')+(av.length?' · aviso: '+av[0]:''));
+    await carregar();render();
+  }catch(e){toast('Sincronização falhou: '+e.message)}finally{sincronizando=false}
+}
+function textoSync(){if(!S.ultimaSync)return 'ainda não sincronizou';const h=(Date.now()-new Date(S.ultimaSync).getTime())/36e5;return h<1?'há menos de 1 hora':h<48?'há '+Math.round(h)+' horas':'há '+Math.round(h/24)+' dias'}
 async function todos(q){let out=[],from=0;for(;;){const r=await q().range(from,from+999);if(r.error)return r;out=out.concat(r.data);if(r.data.length<1000)break;from+=1000}return{data:out,error:null}}
 function demo(){
   const h=hojeStr(),m=h.slice(0,7);let k=0;const id=()=> 'd'+(++k);
@@ -260,7 +277,8 @@ function radar(){
   if(top)out.push({n:'alerta',t:`${top.k} subiu: ${BRL(top.v)} neste mês contra ${BRL(top.base)} no mesmo período do mês passado.`});
   S.cartoes.forEach(c=>{const f=S.lanc.filter(l=>l.tipo==='cartao'&&l.cartao_id===c.id&&mesFatura(l)===m).reduce((a,l)=>a+l.valor,0);if(+c.limite>0&&f/c.limite>=.8)out.push({n:'alerta',t:`A fatura do ${c.nome} já usa ${Math.round(f/c.limite*100)}% do limite (${BRL(f)} de ${BRL(c.limite)}).`})});
   agenda().slice(0,3).forEach(a=>{const d=Math.max(0,-dias(a.d));out.push({n:'info',t:`${a.nome} vence ${d===0?'hoje':d===1?'amanhã':'em '+d+' dias'}: ${BRL(-a.v)}.`})});
-  S.contas.forEach(c=>{const ds=S.lanc.filter(l=>l.conta_id===c.id).map(l=>l.data).sort(),ult=ds[ds.length-1];
+  if(!DEMO&&S.contas.some(c=>c.pluggy_id)||S.ultimaSync){const h=S.ultimaSync?(Date.now()-new Date(S.ultimaSync).getTime())/36e5:1e9;if(h>48)out.push({n:'alerta',t:'A sincronização automática dos bancos está parada ('+textoSync()+'). Abra Contas e toque em Sincronizar bancos.'})}
+  S.contas.forEach(c=>{if(c.pluggy_id&&S.ultimaSync&&(Date.now()-new Date(S.ultimaSync).getTime())<1728e5)return;const ds=S.lanc.filter(l=>l.conta_id===c.id).map(l=>l.data).sort(),ult=ds[ds.length-1];
     if(!ult)out.push({n:'info',t:`A conta ${c.nome} ainda não tem lançamentos. Importe o extrato.`});
     else if(dias(ult)>7)out.push({n:'alerta',t:`A conta ${c.nome} está sem lançamentos há ${dias(ult)} dias. Importe o extrato mais recente.`});
     if(saldoConta(c)<0)out.push({n:'alerta',t:`O saldo calculado de ${c.nome} está negativo (${BRL(saldoConta(c))}). Use "Ajustar saldo" em Contas.`})});
@@ -391,7 +409,8 @@ document.addEventListener('paste',e=>{const f=[...(e.clipboardData?.files||[])][
 function saldoConta(c){let t=+c.saldo_inicial;S.lanc.forEach(l=>{if(l.conta_id===c.id)t+=l.tipo==='entrada'?l.valor:(l.tipo==='saida'?-l.valor:0)});return t}
 function vContas(){
   const tot=S.contas.reduce((a,c)=>a+saldoConta(c),0);
-  $('view').innerHTML=`<div class="grid g2" style="margin-top:0"><div class="card"><h3>Suas contas <span class="tag">${BRL(tot)}</span></h3>${S.contas.map(c=>`<div class="item"><div class="ico" style="background:var(--navy)">🏦</div><div class="nm"><b>${esc(c.nome)}</b><small>saldo inicial ${BRL(c.saldo_inicial)}</small></div><b class="${saldoConta(c)<0?'neg':''}">${BRL(saldoConta(c))}</b><button class="sm" onclick="ajustaSaldo('${c.id}')">Ajustar saldo</button><button class="sm dan" onclick="delItem('contas','${c.id}','conta')">✕</button></div>`).join('')||'<div class="empty">Cadastre a conta do banco (ex.: C6 Bank PJ)</div>'}</div>
+  $('view').innerHTML=`<div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><div><b>🔄 Bancos conectados (Meu Pluggy)</b><div class="hint">Última sincronização: ${textoSync()}. Atualiza contas pessoais, cartões e lançamentos dos últimos 90 dias, sem duplicar.</div></div><button class="pri" onclick="sincronizar()">Sincronizar bancos agora</button></div></div>
+  <div class="grid g2" style="margin-top:0"><div class="card"><h3>Suas contas <span class="tag">${BRL(tot)}</span></h3>${S.contas.map(c=>`<div class="item"><div class="ico" style="background:var(--navy)">🏦</div><div class="nm"><b>${esc(c.nome)}</b><small>saldo inicial ${BRL(c.saldo_inicial)}</small></div><b class="${saldoConta(c)<0?'neg':''}">${BRL(saldoConta(c))}</b><button class="sm" onclick="ajustaSaldo('${c.id}')">Ajustar saldo</button><button class="sm dan" onclick="delItem('contas','${c.id}','conta')">✕</button></div>`).join('')||'<div class="empty">Cadastre a conta do banco (ex.: C6 Bank PJ)</div>'}</div>
   <div class="card"><h3>Nova conta</h3><label>Nome</label><input id="an" placeholder="Ex.: C6 Bank PJ"><label>Saldo inicial (hoje, antes de importar)</label><input id="as" inputmode="decimal" placeholder="0,00"><div class="hint" style="margin-top:8px">O saldo da conta = saldo inicial + entradas − saídas lançadas nela. Ao importar o extrato, use o saldo de antes do primeiro lançamento do arquivo.</div><button class="pri" style="margin-top:14px" onclick="addConta()">Adicionar conta</button></div></div>`;
 }
 async function ajustaSaldo(id){
@@ -478,7 +497,8 @@ function mostraLogin(){$('app').classList.add('hide');$('fab').classList.add('hi
 $('lform').addEventListener('submit',async e=>{e.preventDefault();$('lerr').textContent='';
   const {error}=await sb.auth.signInWithPassword({email:$('lemail').value.trim(),password:$('lsenha').value});
   if(error)$('lerr').textContent='E-mail ou senha incorretos.'});
-async function iniciar(s){S.uid=s.user.id;S.email=s.user.email;mostraApp();await carregar();render()}
+async function iniciar(s){S.uid=s.user.id;S.email=s.user.email;mostraApp();await carregar();render();
+  if(S.ultimaSync&&(Date.now()-new Date(S.ultimaSync).getTime())>6*36e5)sincronizar(true)}
 (async()=>{
   ym=mesAtual();
   if(DEMO){$('demoBar').classList.remove('hide');S.uid='demo';S.email='emanuel@demo';mostraApp();await carregar();render();return}
